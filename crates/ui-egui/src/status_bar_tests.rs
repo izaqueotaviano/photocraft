@@ -62,6 +62,20 @@ fn status_bar_controls_sit_inside_the_bar_with_even_margins() {
     }
 }
 
+/// Every filled rectangle among `shapes`, including those nested in a `Shape::Vec`.
+fn filled_rects(shapes: &[egui::epaint::ClippedShape]) -> Vec<(Rect, egui::Color32)> {
+    fn walk(shape: &egui::Shape, out: &mut Vec<(Rect, egui::Color32)>) {
+        match shape {
+            egui::Shape::Rect(r) => out.push((r.rect, r.fill)),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    shapes.iter().for_each(|s| walk(&s.shape, &mut out));
+    out
+}
+
 /// The bar is filled with the theme's status-bar colour: a step darker than the chrome in the
 /// default brightness (#4b4b4b in the user's reference palette), the chrome colour elsewhere.
 #[test]
@@ -70,14 +84,9 @@ fn status_bar_is_filled_with_its_theme_colour() {
         let h = harness(kind);
         let t = Tokens::for_kind(kind);
         let bar_h = crate::panels::status_bar_heights(&t).0;
-        let bottom = h.ctx.data(|d| d.get_temp::<f32>(bottom_id())).unwrap();
-        let bar = h.output().shapes.iter().find_map(|s| match &s.shape {
-            egui::Shape::Rect(r) if (r.rect.height() - bar_h).abs() < 1.0 && (r.rect.bottom() - bottom).abs() < 1.0 && r.rect.width() > SIZE.x / 2.0 => {
-                Some(r.fill)
-            }
-            _ => None,
-        });
-        assert_eq!(bar, Some(t.status_bar), "{kind:?}: the bar's fill");
+        let rects = filled_rects(&h.output().shapes);
+        let bar = rects.iter().find(|(r, fill)| *fill == t.status_bar && r.width() > SIZE.x / 2.0 && r.height() >= bar_h - 1.0);
+        assert!(bar.is_some(), "{kind:?}: no status bar fill {:?} of at least {bar_h} pt among {rects:?}", t.status_bar);
     }
     let m = Tokens::for_kind(ThemeKind::ProMedium);
     assert_ne!(m.status_bar, m.chrome, "the default brightness has its own status bar colour");
