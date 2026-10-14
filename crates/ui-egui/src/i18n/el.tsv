@@ -3842,3 +3842,12 @@ curves	Smooth	Εξομάλυνση
 	Sent to {printer}	Στάλθηκε στον {printer}
 	set in Print Settings…	ορίζεται στις ρυθμίσεις εκτύπωσης…
 	ICO is limited to 256 × 256 pixels	Το ICO περιορίζεται σε 256 × 256 εικονοστοιχεία
+	YOUR RECENT ITEMS ({n})	ΤΑ ΠΡΟΣΦΑΤΑ ΣΑΣ ΣΤΟΙΧΕΙΑ ({n})
+	YOUR SAVED PRESETS ({n})	ΟΙ ΑΠΟΘΗΚΕΥΜΕΝΕΣ ΠΡΟΕΠΙΛΟΓΕΣ ΣΑΣ ({n})
+	Start a new canvas	Ξεκινήστε έναν νέο καμβά
+	Choose a preset below, or set your own size in Preset Details.	Επιλέξτε μια προεπιλογή παρακάτω ή ορίστε το δικό σας μέγεθος στις λεπτομέρειες προεπιλογής.
+	Advanced Options	Προηγμένες επιλογές
+	Working space ({profile})	Χώρος εργασίας ({profile})
+	No color profile (untagged)	Χωρίς προφίλ χρωμάτων (χωρίς ετικέτα)
+	Delete Preset	Διαγραφή προεπιλογής
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	Η αναλογία διαστάσεων εικονοστοιχείων είναι ρύθμιση προβολής: ισχύει για όλα τα ανοιχτά έγγραφα.

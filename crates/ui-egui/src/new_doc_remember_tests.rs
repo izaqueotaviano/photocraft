@@ -100,3 +100,25 @@ fn created_documents_fill_the_recent_category() {
         (&json!(640), &json!(480), &json!("cmyk"), &json!(16), &json!("transparent"), &json!("Next"), &json!("in"))
     );
 }
+
+/// The Artboards box and the Advanced Options colour profile are remembered with the rest, and a
+/// corrupt value of either is ignored.
+#[test]
+fn artboards_and_profile_are_remembered() {
+    let mut app = app();
+    create(&mut app, json!({"width": 64, "height": 48, "artboards": true, "profile": "display-p3"}));
+    let d = &app.session.active().unwrap().doc;
+    assert_eq!(d.artboards().len(), 1);
+    assert!(d.icc_profile.is_some());
+    let f = app.new_document_fields();
+    assert_eq!((f.get("artboards"), f.get("profile")), (Some(&json!(true)), Some(&json!("display-p3"))));
+    // Both reach the Recent card too.
+    let recent = &app.session.presets.recent_documents[0];
+    assert!(recent.artboards);
+    assert_eq!(recent.profile, "display-p3");
+
+    let mut app = self::app();
+    app.session.prefs.edit(|p| p.dialogs.insert("file.new".into(), json!({"artboards": "yes", "profile": "no-such-profile"})));
+    let f = app.new_document_fields();
+    assert!(f.get("artboards").is_none() && f.get("profile").is_none());
+}

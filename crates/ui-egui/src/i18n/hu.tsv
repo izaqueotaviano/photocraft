@@ -4065,3 +4065,12 @@ cameraRaw	Yellow	Sárga
 	Ink Characteristics	Festék jellemzői
 	Solidity:	Fedőképesség:
 	Redrawing	Újrarajzolás
+	YOUR RECENT ITEMS ({n})	LEGUTÓBBI ELEMEK ({n})
+	YOUR SAVED PRESETS ({n})	MENTETT ELŐBEÁLLÍTÁSOK ({n})
+	Start a new canvas	Új vászon kezdése
+	Choose a preset below, or set your own size in Preset Details.	Válasszon lent egy előbeállítást, vagy adja meg a saját méretet az előbeállítás részleteinél.
+	Advanced Options	Speciális beállítások
+	Working space ({profile})	Munkatér ({profile})
+	No color profile (untagged)	Nincs színprofil (címkézetlen)
+	Delete Preset	Előbeállítás törlése
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	A pixelarány nézetbeállítás: minden megnyitott dokumentumra érvényes.

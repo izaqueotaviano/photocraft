@@ -3821,3 +3821,13 @@ curves	Smooth	スムーズ
 	Reset All Locked Settings	ロックされた設定をすべて初期化
 	Copy Texture to Other Tools	テクスチャを他のツールにコピー
 	ICO is limited to 256 × 256 pixels	ICO は 256 × 256 ピクセルまでです
+	YOUR RECENT ITEMS ({n})	最近の項目 ({n})
+	YOUR SAVED PRESETS ({n})	保存済みのプリセット ({n})
+	Start a new canvas	新しいキャンバスを始める
+	Choose a preset below, or set your own size in Preset Details.	下のプリセットを選ぶか、プリセットの詳細でサイズを指定してください。
+	Advanced Options	詳細オプション
+	Working space ({profile})	作業用スペース ({profile})
+	No color profile (untagged)	カラープロファイルなし（タグなし）
+	Delete Preset	プリセットを削除
+	Artboards	アートボード
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	ピクセル縦横比は表示の設定で、開いているすべてのドキュメントに適用されます。

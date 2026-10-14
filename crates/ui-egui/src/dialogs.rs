@@ -177,6 +177,15 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         if color_picker {
             modal = modal.frame(egui::Frame::popup(&ctx.global_style()).inner_margin(16));
         }
+        // New Document draws in its own palette: its window fill, and the tokens its widgets read
+        // while it is drawn (put back when `_new_doc_tokens` drops after the modal).
+        let _new_doc_tokens = if d.kind == DialogKind::NewDocument {
+            let t = crate::theme::Tokens::get(ctx);
+            modal = modal.frame(egui::Frame::popup(&ctx.global_style()).fill(t.new_doc_palette().window).inner_margin(16));
+            Some(crate::theme::TokenScope::new(ctx, t.for_new_doc()))
+        } else {
+            None
+        };
         // Tab / ⇧Tab walk the topmost dialog's text fields, not every widget (field_tab.rs).
         let tab = if top == Some(d.id) && !egui::Popup::is_any_open(ctx) { crate::field_tab::take_step(ctx) } else { 0 };
         // Photoshop doesn't dim the window behind dialogs: previews must be judged at true contrast.
@@ -195,8 +204,10 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             if let Some(w) = wide {
                 ui.set_min_width(w.min(460.0));
             }
+            // New Document: as wide as the window allows up to 1040 pt, never under 760.
+            let new_doc_w = (ctx.content_rect().width() - 48.0).clamp(760.0, 1040.0);
             if d.kind == DialogKind::NewDocument {
-                ui.set_min_width(800.0);
+                ui.set_min_width(new_doc_w);
             }
             // The About window: room for the contributor table, the same width on every tab.
             let about_tabs = d.kind == DialogKind::About && d.fields.get("systemInfo").and_then(Value::as_bool) != Some(true);
@@ -204,7 +215,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 ui.set_min_width(700.0);
             }
             ui.set_max_width(wide.unwrap_or(if d.kind == DialogKind::NewDocument {
-                800.0
+                new_doc_w
             } else if about_tabs {
                 700.0
             } else if d.kind == DialogKind::LayerStyle || d.fields.contains_key("__export") || crate::color_picker_ui::owns(&d.fields) {
@@ -384,7 +395,18 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             tl!("Cancel")
                         };
                         let cancel = DialogButton::new(ButtonRole::Cancel, cancel_label, 84.0);
-                        let clicked = if d.kind == DialogKind::Command && crate::prefs_ui::is_preferences(&fields) {
+                        let clicked = if d.kind == DialogKind::NewDocument {
+                            // This dialog alone reads Close, Create from the left on every
+                            // platform: Create, the primary pill, sits in the corner. The row is
+                            // right to left, so Create goes in first.
+                            if crate::widgets::primary_button(ui, ok_label, 84.0).clicked() {
+                                Some(ButtonRole::Default)
+                            } else if crate::widgets::secondary_button(ui, cancel_label, 84.0).clicked() {
+                                Some(ButtonRole::Cancel)
+                            } else {
+                                None
+                            }
+                        } else if d.kind == DialogKind::Command && crate::prefs_ui::is_preferences(&fields) {
                             let changed = crate::prefs_ui::preferences_changed(app, &fields);
                             dialog_buttons(ui, &[ok, cancel, DialogButton::new(ButtonRole::Apply, tl!("Apply"), 84.0).enabled(changed)])
                         } else if crate::mask_trash_prompt::owns(&fields) && !crate::mask_trash_prompt::is_vector(&fields) {
@@ -561,6 +583,11 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
                 app.ui.views[i].fit_pending = true;
             }
             if r.is_ok() {
+                // Advanced Options › Pixel Aspect Ratio: the View menu's own command (a view
+                // setting, so it applies to every open document). Best effort, like Recent below.
+                if let Some(cmd) = crate::new_doc_ui::pixel_aspect_command(&d.fields, &app.ui.view.pixel_aspect) {
+                    let _ = crate::view_cmds::invoke(app, &egui::Context::default(), &cmd, &json!({}));
+                }
                 crate::remember_new_document(app, &d.fields);
                 // File › New › Recent. Best effort: the document exists either way.
                 let _ = app.run("document.recent.add", json!({"settings": crate::new_doc_ui::document_settings(&d.fields)}));

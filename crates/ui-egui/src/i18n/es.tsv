@@ -2829,3 +2829,14 @@ curves	Smooth	Suavizar
 	Sent to {printer}	Enviado a {printer}
 	set in Print Settings…	se establece en Ajustes de impresión…
 	ICO is limited to 256 × 256 pixels	ICO está limitado a 256 × 256 píxeles
+	YOUR RECENT ITEMS ({n})	TUS ELEMENTOS RECIENTES ({n})
+	YOUR SAVED PRESETS ({n})	TUS AJUSTES PREESTABLECIDOS GUARDADOS ({n})
+	Start a new canvas	Empieza un lienzo nuevo
+	Choose a preset below, or set your own size in Preset Details.	Elige un ajuste preestablecido abajo o define tu propio tamaño en los detalles del ajuste preestablecido.
+	Advanced Options	Opciones avanzadas
+	Working space ({profile})	Espacio de trabajo ({profile})
+	No color profile (untagged)	Sin perfil de color (sin etiquetar)
+	Delete Preset	Eliminar ajuste preestablecido
+	Artboards	Mesas de trabajo
+	Color Profile	Perfil de color
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	La relación de aspecto de píxel es un ajuste de la vista: se aplica a todos los documentos abiertos.

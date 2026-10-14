@@ -883,6 +883,64 @@ impl Tokens {
         if self.pro { Color32::from_gray(if self.dark() { 96 } else { 201 }) } else { self.accent_soft }
     }
 
+    /// File › New's own surfaces ([`NewDocPalette`]). The two darkest Pro brightnesses use the
+    /// reference palette the user supplied (colour values only, picked by eye from screenshots);
+    /// every other theme derives the same roles from its own tokens, so light themes stay light.
+    pub fn new_doc_palette(&self) -> NewDocPalette {
+        if matches!(self.kind, ThemeKind::Pro | ThemeKind::ProMedium) {
+            let g = Color32::from_gray;
+            return NewDocPalette {
+                window: g(0x32),
+                well: g(0x25),
+                hero: g(0x2f),
+                card: g(0x2f),
+                card_hover: g(0x3a),
+                details: g(0x32),
+                input: g(0x25),
+                dropdown: g(0x2f),
+                tab_inactive: g(0xa5),
+                section: g(0xa5),
+                text: self.text,
+                primary: Color32::from_rgb(0x12, 0x73, 0xe6),
+                primary_text: Color32::WHITE,
+                selected_outline: Color32::from_rgb(0x26, 0x80, 0xeb),
+            };
+        }
+        let card = if self.dark() { self.card.lerp_to_gamma(self.hover, 0.35) } else { self.field };
+        NewDocPalette {
+            window: self.card,
+            well: self.dock,
+            hero: card,
+            card,
+            card_hover: if self.dark() { self.hover } else { self.hover.lerp_to_gamma(self.field, 0.4) },
+            details: self.card,
+            input: self.field,
+            dropdown: self.field,
+            tab_inactive: self.text_dim,
+            section: self.text_faint,
+            text: self.text,
+            primary: self.primary_bg,
+            primary_text: self.primary_text,
+            selected_outline: self.accent,
+        }
+    }
+
+    /// These tokens with File › New's palette in the roles its widgets read (fields, the window,
+    /// the primary button, the accent), for [`with_tokens`] around that dialog's body only.
+    pub fn for_new_doc(&self) -> Tokens {
+        let p = self.new_doc_palette();
+        Tokens {
+            card: p.window,
+            field: p.input,
+            primary_bg: p.primary,
+            primary_text: p.primary_text,
+            accent: p.selected_outline,
+            accent_border: p.selected_outline,
+            text_faint: if self.pro && self.dark() { p.section } else { self.text_faint },
+            ..*self
+        }
+    }
+
     /// A hovered Home-screen card: a step lighter than the card, or the plain hover fill where
     /// the theme draws no cards.
     pub fn home_card_hovered(&self) -> Color32 {
@@ -910,6 +968,73 @@ impl Tokens {
                 | ThemeKind::SoftDark
         )
     }
+}
+
+/// File › New's surfaces and text roles, from [`Tokens::new_doc_palette`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NewDocPalette {
+    /// The dialog window and its button row.
+    pub window: Color32,
+    /// The well behind the preset cards.
+    pub well: Color32,
+    /// The Recent tab's welcome card.
+    pub hero: Color32,
+    /// A preset card, and one under the pointer.
+    pub card: Color32,
+    pub card_hover: Color32,
+    /// The Preset Details column.
+    pub details: Color32,
+    /// Number and text fields.
+    pub input: Color32,
+    /// Dropdown menus.
+    pub dropdown: Color32,
+    /// Category tabs that aren't the current one.
+    pub tab_inactive: Color32,
+    /// Section headings (PRESET DETAILS, the preset count) and card size lines.
+    pub section: Color32,
+    pub text: Color32,
+    /// Create.
+    pub primary: Color32,
+    pub primary_text: Color32,
+    /// The 2 px ring around the selected card.
+    pub selected_outline: Color32,
+}
+
+/// While alive, [`Tokens::get`] returns the tokens it was made with; dropping it (also when the
+/// code drawing in between unwinds) puts the theme's own back. One dialog can so recolour the
+/// shared widgets without touching the rest of the app.
+pub struct TokenScope {
+    ctx: egui::Context,
+    saved: Option<Tokens>,
+}
+
+impl TokenScope {
+    pub fn new(ctx: &egui::Context, t: Tokens) -> Self {
+        let id = egui::Id::new("photocraft-theme");
+        let saved = ctx.data(|d| d.get_temp::<Tokens>(id));
+        ctx.data_mut(|d| d.insert_temp(id, t));
+        Self { ctx: ctx.clone(), saved }
+    }
+}
+
+impl Drop for TokenScope {
+    fn drop(&mut self) {
+        let id = egui::Id::new("photocraft-theme");
+        match self.saved {
+            Some(t) => self.ctx.data_mut(|d| {
+                d.insert_temp(id, t);
+            }),
+            None => self.ctx.data_mut(|d| {
+                d.remove::<Tokens>(id);
+            }),
+        }
+    }
+}
+
+/// Run `f` with `t` as the tokens [`Tokens::get`] returns, then put the theme's own back.
+pub fn with_tokens<R>(ctx: &egui::Context, t: Tokens, f: impl FnOnce() -> R) -> R {
+    let _scope = TokenScope::new(ctx, t);
+    f()
 }
 
 /// Register Inter (UI) and JetBrains Mono (numbers) plus named weights.
@@ -1288,6 +1413,47 @@ mod tests {
         assert!(!ThemeKind::Studio.is_pro() && !ThemeKind::StudioLight.is_pro() && !ThemeKind::Classic.is_pro());
         assert_eq!(ThemeKind::from_name("light gray"), Some(ThemeKind::ProLightGray));
         assert_eq!(ThemeKind::from_name("lightest"), Some(ThemeKind::ProLight));
+    }
+
+    /// File › New's palette keeps text readable in every theme: body text on each surface, the
+    /// dimmer headings and size lines on the cards and the well, white (or the theme's label) on
+    /// Create, and the selected card's ring visible against the card.
+    #[test]
+    fn new_document_palette_holds_its_contrast_in_every_theme() {
+        for kind in ThemeKind::ALL {
+            let t = Tokens::for_kind(kind);
+            let p = t.new_doc_palette();
+            // A theme whose own panels sit below AA (Solarized Dark) may not lose much more here.
+            let floor = if t.pro && t.dark() { 4.5 } else { 4.5f32.min(contrast_ratio(t.text, t.card)) * 0.85 };
+            for (what, bg) in [("window", p.window), ("well", p.well), ("hero", p.hero), ("card", p.card), ("details", p.details), ("input", p.input)] {
+                assert!(contrast_ratio(p.text, bg) >= floor, "{kind:?}: text on {what} {}", contrast_ratio(p.text, bg));
+            }
+            if matches!(kind, ThemeKind::Pro | ThemeKind::ProMedium) {
+                for (what, bg) in [("well", p.well), ("card", p.card), ("window", p.window)] {
+                    assert!(contrast_ratio(p.section, bg) >= 4.5, "{kind:?}: headings on {what}");
+                    assert!(contrast_ratio(p.tab_inactive, bg) >= 4.5, "{kind:?}: inactive tabs on {what}");
+                }
+                assert!(contrast_ratio(p.primary_text, p.primary) >= 4.5, "{kind:?}: Create {}", contrast_ratio(p.primary_text, p.primary));
+                assert!(contrast_ratio(p.selected_outline, p.card) >= 3.0, "{kind:?}: selected ring");
+                assert_eq!(
+                    (p.window, p.well, p.card, p.input, p.dropdown),
+                    (Color32::from_gray(0x32), Color32::from_gray(0x25), Color32::from_gray(0x2f), Color32::from_gray(0x25), Color32::from_gray(0x2f))
+                );
+            }
+            // Light themes stay light.
+            assert_eq!(t.dark(), contrast_ratio(p.window, Color32::BLACK) < contrast_ratio(p.window, Color32::WHITE), "{kind:?}");
+        }
+    }
+
+    /// The scoped tokens are back once the dialog body is drawn.
+    #[test]
+    fn with_tokens_restores_the_theme() {
+        let ctx = egui::Context::default();
+        apply(&ctx, ThemeKind::ProMedium);
+        let before = Tokens::get(&ctx);
+        let inside = with_tokens(&ctx, before.for_new_doc(), || Tokens::get(&ctx));
+        assert_eq!(inside.field, Color32::from_gray(0x25));
+        assert_eq!(Tokens::get(&ctx), before);
     }
 
     #[test]

@@ -3631,3 +3631,13 @@ curves	Smooth	Làm mượt
 	Sent to {printer}	Đã gửi tới {printer}
 	set in Print Settings…	đặt trong thiết lập in…
 	ICO is limited to 256 × 256 pixels	ICO giới hạn ở 256 × 256 pixel
+	YOUR RECENT ITEMS ({n})	Mục gần đây của bạn ({n})
+	YOUR SAVED PRESETS ({n})	Thiết lập sẵn đã lưu của bạn ({n})
+	Start a new canvas	Bắt đầu một khung vẽ mới
+	Choose a preset below, or set your own size in Preset Details.	Chọn một thiết lập sẵn bên dưới, hoặc tự đặt kích thước trong Chi tiết thiết lập sẵn.
+	Advanced Options	Tùy chọn nâng cao
+	Working space ({profile})	Không gian làm việc ({profile})
+	No color profile (untagged)	Không có cấu hình màu (không gắn thẻ)
+	Delete Preset	Xóa thiết lập sẵn
+	Artboards	Bảng vẽ
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	Tỷ lệ khung pixel là cài đặt hiển thị: áp dụng cho mọi tài liệu đang mở.

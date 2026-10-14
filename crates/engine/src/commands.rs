@@ -403,7 +403,7 @@ fn build() -> Vec<CommandSpec> {
             "New…",
             ["File"],
             Some("Cmd+N"),
-            r##"{"width":1..300000=1920,"height":1..300000=1080 (pixel counts are rounded),"mode":"rgb|gray|grayscale|cmyk|lab"="rgb","depth":8|16|32=8,"background":"white|black|backgroundColor|transparent|#rrggbb"="white","backgroundColor":[r,g,b]? (0..1; defaults to toolbox colour),"resolution":1..30000=72 (ppi),"name":str}"##,
+            r##"{"width":1..300000=1920,"height":1..300000=1080 (pixel counts are rounded),"mode":"rgb|gray|grayscale|cmyk|lab"="rgb","depth":8|16|32=8,"background":"white|black|backgroundColor|transparent|#rrggbb"="white","backgroundColor":[r,g,b]? (0..1; defaults to toolbox colour),"resolution":1..30000=72 (ppi),"name":str,"artboards":bool=false (an artboard "Artboard 1" at canvas size with a transparent "Layer 1"; the background fills the board),"profile":"working|none|<built-in profile id>"="working" (working = untagged in the working space; a built-in must match the mode)}"##,
             always,
             |s, p| {
                 use crate::document_preset_cmds::{MAX_DIMENSION, MAX_RESOLUTION, background_color, color_mode, sample_type};
@@ -422,7 +422,14 @@ fn build() -> Vec<CommandSpec> {
                 let depth = sample_type(p.get("depth").and_then(Value::as_u64).unwrap_or(8)).unwrap_or(SampleType::U8);
                 let name = p.get("name").and_then(Value::as_str).unwrap_or("Untitled").to_string();
                 let res = p.get("resolution").and_then(Value::as_f64).unwrap_or(72.0).clamp(1.0, MAX_RESOLUTION) as f32;
+                let artboards = p.get("artboards").and_then(Value::as_bool) == Some(true);
                 let mut doc = match p.get("background").and_then(Value::as_str).unwrap_or("white") {
+                    // An artboard document has no Background layer: the choice fills the board.
+                    _ if artboards => {
+                        let mut d = Document::new(name, Size::new(w, h), mode, depth);
+                        crate::artboard_cmds::make_artboard_document(&mut d, p, s.tools.background);
+                        d
+                    }
                     "backgroundColor" => {
                         let bgc = background_color(p, s.tools.background, "file.new")?;
                         Document::with_background(name, Size::new(w, h), mode, depth, Color::rgba(bgc[0], bgc[1], bgc[2], 1.0))
@@ -439,6 +446,7 @@ fn build() -> Vec<CommandSpec> {
                     }
                 };
                 doc.resolution_dpi = res;
+                doc.icc_profile = crate::document_preset_cmds::new_profile(p)?;
                 let i = s.add_document(doc, None);
                 Ok(json!({ "document": i }))
             }

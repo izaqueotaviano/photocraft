@@ -3146,3 +3146,13 @@ curves	Smooth	Lisser
 	Sent to {printer}	Envoyé à {printer}
 	set in Print Settings…	défini dans les paramètres d’impression…
 	ICO is limited to 256 × 256 pixels	Le format ICO est limité à 256 × 256 pixels
+	YOUR RECENT ITEMS ({n})	VOS ÉLÉMENTS RÉCENTS ({n})
+	YOUR SAVED PRESETS ({n})	VOS PRÉRÉGLAGES ENREGISTRÉS ({n})
+	Start a new canvas	Commencer un nouveau canevas
+	Choose a preset below, or set your own size in Preset Details.	Choisissez un préréglage ci-dessous ou définissez votre propre taille dans les détails du préréglage.
+	Advanced Options	Options avancées
+	Working space ({profile})	Espace de travail ({profile})
+	No color profile (untagged)	Aucun profil colorimétrique (non balisé)
+	Delete Preset	Supprimer le préréglage
+	Artboards	Plans de travail
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	Le format des pixels est un réglage d'affichage : il s'applique à tous les documents ouverts.

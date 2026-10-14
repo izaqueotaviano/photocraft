@@ -226,6 +226,30 @@ fn set_artboard(l: &mut Layer, a: Artboard) {
     l.clipped = false;
 }
 
+/// `file.new` with `"artboards": true`: the new document becomes one artboard, "Artboard 1", at
+/// canvas size, holding a transparent "Layer 1". The Background Contents choice (`p`, already
+/// validated by `file.new`) fills the board instead of a Background layer.
+pub(crate) fn make_artboard_document(doc: &mut Document, p: &Value, toolbox: [f32; 4]) {
+    let background = match p.get("background").and_then(Value::as_str).unwrap_or("white") {
+        "black" => ArtboardBackground::Black,
+        "transparent" => ArtboardBackground::Transparent,
+        "backgroundColor" => {
+            let c = crate::document_preset_cmds::background_color(p, toolbox, "file.new").unwrap_or([1.0; 4]);
+            ArtboardBackground::Custom(Color::rgba(c[0], c[1], c[2], 1.0))
+        }
+        "white" => ArtboardBackground::White,
+        hex => match crate::commands::parse_hex(hex) {
+            Some(c) => ArtboardBackground::Custom(Color::rgba(c[0], c[1], c[2], c[3])),
+            None => ArtboardBackground::White,
+        },
+    };
+    let rect = Rect::new(0, 0, i32::try_from(doc.size.width).unwrap_or(i32::MAX), i32::try_from(doc.size.height).unwrap_or(i32::MAX));
+    let layer = Layer::raster("Layer 1", doc.pixel_format());
+    let mut board = Layer::group("Artboard 1", vec![layer]);
+    set_artboard(&mut board, Artboard { rect, background, preset: String::new() });
+    doc.layers = vec![board];
+}
+
 fn new_artboard(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "layer.new.artboard";
     let d = s.active().ok_or(EngineError::NoDocument)?;

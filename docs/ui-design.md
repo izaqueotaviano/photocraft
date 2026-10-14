@@ -25,6 +25,31 @@ Window → Theme and macOS PhotoCraft → Appearance also offer Sync with system
 
 The toolbar's foreground and background colour chips follow the `Tokens::round_chips` flag. Pro and Classic leave it off and draw Photoshop's overlapping squares with Default Colors and Switch Colors above them. Studio, Studio Light, Solarized Dark, Adwaita, Adwaita Dark, Breeze Light, Breeze Dark, Soft Dark and Soft Light (the Studio-layout themes) turn it on and draw large round chips with a curved Switch Colors arrow centred right under them, its heads touching the chips: stacked vertically in one tool column, with Default Colors at their top-right, and side by side in two tool columns, with Default Colors at the toolbar's left edge. Another non-Pro theme can opt in by setting the flag.
 
+## New Document
+
+File › New draws in its own palette, `Tokens::new_doc_palette()` (`theme::NewDocPalette`), scoped
+to the dialog with `theme::TokenScope` so the shared widgets (fields, dropdowns, buttons) take its
+colours and every other window keeps the theme's. In Pro and Pro Medium the values follow a
+reference the user supplied (colours only, picked by eye; no wording or icons copied): the window
+and the Preset Details column #323232, the well behind the cards #252525, the Recent tab's welcome
+card and the preset cards #2f2f2f, fields #252525, dropdowns #2f2f2f, inactive tabs and headings
+#a5a5a5, the current tab in body text with a 2 px underline, the selected card ringed 2 px #2680eb,
+and Create a #1273e6 pill with Close outlined to its left. Every other theme derives the same roles
+from its own tokens, so the light themes stay light. `theme.rs` tests hold the contrast (text
+4.5:1 on every surface, white on Create, the selection ring 3:1 on a card).
+
+Layout: tabs Recent, Saved, then the blank-document categories; on Recent a welcome card with our
+own wording ("Start a new canvas") and a painted illustration; a heading per tab (YOUR RECENT
+ITEMS, YOUR SAVED PRESETS, BLANK DOCUMENT PRESETS); 164 × 112 pt cards with a painted category
+pictogram inside a page outline of the preset's aspect, the title and the size line; saved presets
+as cards with a bin button (accessible name "Delete"); on the right the name with a painted
+save-preset button, Width and units, Height and Orientation, Artboards, Resolution, Color Mode and
+depth, Background Contents and swatch, and a collapsible Advanced Options (closed by default, field
+`__advanced`) with Color Profile (`profile`) and Pixel Aspect Ratio (`__pixelAspect`, which runs
+`view.pixelAspectRatio.<id>` on Create: a view setting for every open document). Tabs and cards
+report their selected state to accessibility. Every glyph in the dialog is painted in
+`new_doc_ui.rs` from lines and shapes.
+
 ## Rules
 
 - **Colours and radii come from tokens.** Read them with `Tokens::get(ctx)`; never hard-code a colour in a widget.

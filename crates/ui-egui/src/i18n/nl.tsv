@@ -3904,3 +3904,12 @@ curves	Smooth	Vloeiend maken
 	Sent to {printer}	Verzonden naar {printer}
 	set in Print Settings…	instellen in de afdrukinstellingen…
 	ICO is limited to 256 × 256 pixels	ICO is beperkt tot 256 × 256 pixels
+	YOUR RECENT ITEMS ({n})	JE RECENTE ITEMS ({n})
+	YOUR SAVED PRESETS ({n})	JE OPGESLAGEN VOORINSTELLINGEN ({n})
+	Start a new canvas	Begin een nieuw canvas
+	Choose a preset below, or set your own size in Preset Details.	Kies hieronder een voorinstelling of stel je eigen formaat in bij de details van de voorinstelling.
+	Advanced Options	Geavanceerde opties
+	Working space ({profile})	Werkruimte ({profile})
+	No color profile (untagged)	Geen kleurprofiel (zonder tag)
+	Delete Preset	Voorinstelling verwijderen
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	Pixelverhouding is een weergave-instelling: ze geldt voor elk geopend document.

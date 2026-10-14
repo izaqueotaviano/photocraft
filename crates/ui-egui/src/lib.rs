@@ -2368,7 +2368,7 @@ const NEW_DOCUMENT: &str = "file.new";
 
 /// New Document fields its OK remembers (#1810): the size, resolution, mode, depth, background and
 /// display units. Not the name, the preset or the clipboard size.
-const NEW_DOCUMENT_REMEMBERED: [&str; 8] = ["width", "height", "resolution", "mode", "depth", "background", "__unit", "__resUnit"];
+const NEW_DOCUMENT_REMEMBERED: [&str; 10] = ["width", "height", "resolution", "mode", "depth", "background", "__unit", "__resUnit", "artboards", "profile"];
 
 /// A remembered value the dialog can show (a corrupt preference is ignored).
 fn remembered_new_document_value(key: &str, v: &serde_json::Value) -> bool {
@@ -2376,6 +2376,9 @@ fn remembered_new_document_value(key: &str, v: &serde_json::Value) -> bool {
         "width" | "height" => v.as_u64().is_some_and(|n| (1..=300_000).contains(&n)),
         "resolution" => v.as_f64().is_some_and(|r| r.is_finite() && r > 0.0 && r <= 30_000.0),
         "depth" => v.as_u64().is_some_and(|d| matches!(d, 1 | 8 | 16 | 32)),
+        // Only set when on (`new_doc_ui` drops the key when off), as `file.new` takes it.
+        "artboards" => v.as_bool() == Some(true),
+        "profile" => v.as_str().is_some_and(|s| matches!(s, "working" | "none") || photocraft_cms::Builtin::from_id(s).is_some()),
         _ => v.as_str().is_some_and(|s| !s.is_empty() && s.len() <= 64),
     }
 }

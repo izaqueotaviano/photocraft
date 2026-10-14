@@ -1,6 +1,7 @@
 //! Named New Document configurations. The existing preferences services persist these with the
 //! other presets; selecting one only returns settings, and document creation stays in `file.new`.
 
+use photocraft_cms::Builtin;
 use photocraft_color::{ColorMode, SampleType};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -78,6 +79,11 @@ pub(crate) fn validate_new_params(s: &Session, p: &Value) -> Result<()> {
                 continue;
             }
             "name" => (value.is_string(), "a string".into()),
+            "artboards" => (value.is_boolean(), "true or false".into()),
+            "profile" => (
+                value.as_str().is_some_and(|v| matches!(v, "working" | "none") || Builtin::from_id(v).is_some()),
+                "working, none or a built-in profile id".into(),
+            ),
             _ => return Err(bad(cmd, format!("unknown parameter `{key}`"))),
         };
         if !valid {
@@ -87,7 +93,29 @@ pub(crate) fn validate_new_params(s: &Session, p: &Value) -> Result<()> {
     if p.get("background").and_then(Value::as_str) == Some("backgroundColor") {
         background_color(p, s.tools.background, cmd)?;
     }
+    new_profile(p)?;
     Ok(())
+}
+
+/// The ICC profile `file.new` embeds from its `profile` param: none for `"working"` (the default:
+/// the document is untagged and shows in the working space, as before) and `"none"` (untagged),
+/// a built-in's bytes otherwise. A built-in whose colour space isn't the new mode's is an error.
+pub(crate) fn new_profile(p: &Value) -> Result<Option<std::sync::Arc<Vec<u8>>>> {
+    let cmd = "file.new";
+    let spec = match p.get("profile") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(v) => v.as_str().ok_or_else(|| bad(cmd, "`profile` must be working, none or a built-in profile id"))?,
+    };
+    if matches!(spec, "working" | "none") {
+        return Ok(None);
+    }
+    let builtin = Builtin::from_id(spec).ok_or_else(|| bad(cmd, format!("unknown profile `{spec}`")))?;
+    let mode = color_mode(p.get("mode").and_then(Value::as_str).unwrap_or("rgb")).unwrap_or(ColorMode::Rgb);
+    let profile = builtin.profile();
+    if profile.color_space != crate::color_cmds::mode_space(mode) {
+        return Err(bad(cmd, format!("profile `{}` is {:?}; the new document is {mode:?}", profile.description, profile.color_space)));
+    }
+    Ok(Some(profile.to_bytes()))
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -104,6 +132,20 @@ pub struct DocumentSettings {
     /// Display units only; width/height are always pixels and resolution is always ppi.
     pub unit: String,
     pub resolution_unit: String,
+    /// Create the document as an artboard (`file.new` `artboards`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub artboards: bool,
+    /// `file.new` `profile`: `"working"` (the default), a built-in profile id or `"none"`.
+    #[serde(default = "working_profile", skip_serializing_if = "is_working_profile")]
+    pub profile: String,
+}
+
+fn working_profile() -> String {
+    "working".into()
+}
+
+fn is_working_profile(p: &str) -> bool {
+    p == "working"
 }
 
 impl DocumentSettings {
@@ -130,6 +172,7 @@ impl DocumentSettings {
         if !matches!(self.unit.as_str(), "px" | "in" | "cm" | "mm" | "pt" | "pica") || !matches!(self.resolution_unit.as_str(), "in" | "cm") {
             return Err("Unknown dimension or resolution display unit".into());
         }
+        new_profile(&self.command_params()).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -169,6 +212,13 @@ impl DocumentSettings {
             "mode":self.mode,"depth":self.depth,"background":self.background});
         if let Some(c) = self.background_color {
             p["backgroundColor"] = json!(c);
+        }
+        // Only when set, so settings saved before these existed give the same params.
+        if self.artboards {
+            p["artboards"] = json!(true);
+        }
+        if self.profile != "working" {
+            p["profile"] = json!(self.profile);
         }
         p
     }
@@ -556,5 +606,101 @@ mod tests {
         let bytes = photocraft_format::save_to_bytes(doc, &Default::default()).unwrap();
         let back = photocraft_format::load_from_bytes(&bytes).unwrap();
         assert_eq!(back.size, photocraft_geom::Size::new(MAX_DIMENSION, MAX_DIMENSION));
+    }
+
+    #[test]
+    fn file_new_artboards_makes_one_board_with_the_background_and_no_background_layer() {
+        use photocraft_doc::ArtboardBackground;
+        for (bg, want) in [
+            (json!({}), ArtboardBackground::White),
+            (json!({"background":"black"}), ArtboardBackground::Black),
+            (json!({"background":"transparent"}), ArtboardBackground::Transparent),
+            (json!({"background":"#ff0000"}), ArtboardBackground::Custom(photocraft_color::Color::rgba(1.0, 0.0, 0.0, 1.0))),
+            (
+                json!({"background":"backgroundColor","backgroundColor":[0.0,0.5,1.0]}),
+                ArtboardBackground::Custom(photocraft_color::Color::rgba(0.0, 0.5, 1.0, 1.0)),
+            ),
+        ] {
+            let mut s = Session::new();
+            let mut p = json!({"width":40,"height":30,"artboards":true});
+            if let (Some(p), Some(bg)) = (p.as_object_mut(), bg.as_object()) {
+                p.extend(bg.clone());
+            }
+            s.execute("file.new", p).unwrap();
+            let doc = &s.active().unwrap().doc;
+            let boards = doc.artboards();
+            assert_eq!(boards.len(), 1, "{bg}");
+            assert_eq!(boards[0].1, "Artboard 1");
+            assert_eq!(boards[0].2.background, want, "{bg}");
+            assert_eq!((boards[0].2.rect.width(), boards[0].2.rect.height()), (40, 30));
+            assert_eq!(doc.layers.len(), 1, "no Background layer");
+            assert_eq!(doc.layers[0].children().map(|c| c.iter().map(|l| l.name.clone()).collect::<Vec<_>>()), Some(vec!["Layer 1".to_string()]));
+        }
+        // `false` is today's document.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"artboards":false})).unwrap();
+        assert!(s.active().unwrap().doc.artboards().is_empty());
+    }
+
+    #[test]
+    fn file_new_profile_embeds_a_matching_builtin_and_rejects_the_rest() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"profile":"display-p3"})).unwrap();
+        let bytes = s.active().unwrap().doc.icc_profile.clone().expect("tagged");
+        let desc = photocraft_cms::Profile::parse(&bytes).unwrap().description;
+        assert_eq!(desc, photocraft_cms::Builtin::DisplayP3.profile().description);
+        for spec in ["working", "none"] {
+            s.execute("file.new", json!({"profile":spec})).unwrap();
+            assert!(s.active().unwrap().doc.icc_profile.is_none(), "{spec}");
+        }
+        s.execute("file.new", json!({"mode":"cmyk","profile":"coated-cmyk"})).unwrap();
+        assert!(s.active().unwrap().doc.icc_profile.is_some());
+        let n = s.documents().len();
+        assert!(s.execute("file.new", json!({"mode":"cmyk","profile":"srgb"})).is_err(), "an RGB profile on a CMYK document");
+        assert_eq!(s.documents().len(), n);
+    }
+
+    #[test]
+    fn file_new_rejects_bad_artboards_and_profile_types() {
+        let mut s = Session::new();
+        for p in [
+            json!({"artboards":"yes"}),
+            json!({"artboards":1}),
+            json!({"artboards":null}),
+            json!({"profile":true}),
+            json!({"profile":"no-such-profile"}),
+            json!({"profile":"/tmp/x.icc"}),
+            json!({"profile":["srgb"]}),
+        ] {
+            assert!(s.execute("file.new", p.clone()).is_err(), "{p}");
+            assert!(s.documents().is_empty(), "{p}");
+        }
+    }
+
+    #[test]
+    fn settings_without_the_new_fields_still_load_and_give_the_same_params() {
+        let old: DocumentSettings = serde_json::from_value(json!({"width":10,"height":20,"resolution":72.0,"mode":"rgb","depth":8,
+            "background":"white","unit":"px","resolutionUnit":"in"}))
+        .unwrap();
+        assert!(!old.artboards);
+        assert_eq!(old.profile, "working");
+        assert_eq!(old.command_params(), json!({"width":10,"height":20,"resolution":72.0,"mode":"rgb","depth":8,"background":"white"}));
+        let back = serde_json::to_value(&old).unwrap();
+        assert!(back.get("artboards").is_none() && back.get("profile").is_none(), "defaults are not written: {back}");
+
+        let mut s = Session::new();
+        let mut config = settings();
+        config["mode"] = json!("rgb");
+        config["artboards"] = json!(true);
+        config["profile"] = json!("srgb");
+        let preset = saved(&mut s, "Boards", config);
+        assert_eq!((preset["settings"]["artboards"].clone(), preset["settings"]["profile"].clone()), (json!(true), json!("srgb")));
+        let next = reload(&s);
+        let p = next.presets.documents[0].settings.command_params();
+        assert_eq!((p["artboards"].clone(), p["profile"].clone()), (json!(true), json!("srgb")));
+        // A profile that doesn't fit the mode is not saved.
+        let mut config = settings();
+        config["profile"] = json!("srgb");
+        assert!(s.execute("document.presets.save", json!({"name":"Lab sRGB","settings":config})).is_err());
     }
 }

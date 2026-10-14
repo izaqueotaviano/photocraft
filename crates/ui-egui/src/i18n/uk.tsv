@@ -3843,3 +3843,13 @@ curves	Smooth	Згладити
 	Sent to {printer}	Надіслано на {printer}
 	set in Print Settings…	задається в параметрах друку…
 	ICO is limited to 256 × 256 pixels	ICO обмежено розміром 256 × 256 пікселів
+	YOUR RECENT ITEMS ({n})	НЕЩОДАВНІ ЕЛЕМЕНТИ ({n})
+	YOUR SAVED PRESETS ({n})	ЗБЕРЕЖЕНІ НАБОРИ ({n})
+	Start a new canvas	Почніть нове полотно
+	Choose a preset below, or set your own size in Preset Details.	Виберіть набір нижче або задайте власний розмір у параметрах набору.
+	Advanced Options	Додаткові параметри
+	Working space ({profile})	Робочий простір ({profile})
+	No color profile (untagged)	Без колірного профілю (без позначки)
+	Delete Preset	Видалити набір
+	Artboards	Монтажні області
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	Співвідношення сторін пікселя — налаштування перегляду: воно діє для всіх відкритих документів.

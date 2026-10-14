@@ -3142,3 +3142,14 @@ curves	Smooth	Glätten
 	Sent to {printer}	An {printer} gesendet
 	set in Print Settings…	in den Druckeinstellungen festlegen…
 	ICO is limited to 256 × 256 pixels	ICO ist auf 256 × 256 Pixel begrenzt
+	YOUR RECENT ITEMS ({n})	IHRE LETZTEN ELEMENTE ({n})
+	YOUR SAVED PRESETS ({n})	IHRE GESPEICHERTEN VORGABEN ({n})
+	Start a new canvas	Neue Arbeitsfläche beginnen
+	Choose a preset below, or set your own size in Preset Details.	Wählen Sie unten eine Vorgabe oder legen Sie Ihre eigene Größe in den Vorgabendetails fest.
+	Advanced Options	Erweiterte Optionen
+	Working space ({profile})	Arbeitsfarbraum ({profile})
+	No color profile (untagged)	Kein Farbprofil (ohne Tag)
+	Delete Preset	Vorgabe löschen
+	Artboards	Zeichenbereiche
+	Color Profile	Farbprofil
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	Das Pixel-Seitenverhältnis ist eine Ansichtseinstellung: Es gilt für alle geöffneten Dokumente.

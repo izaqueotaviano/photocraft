@@ -1,7 +1,12 @@
-//! File › New: Photoshop's New Document dialog. Category tabs with blank-document presets on the
-//! left, Preset Details on the right. Values live in the dialog fields (`width`/`height` in pixels,
-//! `resolution` in ppi, `mode`, `depth`, `background`, `name`), so `ui.dialog.set` drives it and
-//! Create runs `file.new` with them.
+//! File › New: Photoshop's New Document dialog. Category tabs (Recent, Saved, then the
+//! blank-document categories) over a well of preset cards on the left, Preset Details on the
+//! right. Values live in the dialog fields (`width`/`height` in pixels, `resolution` in ppi,
+//! `mode`, `depth`, `background`, `name`, and `artboards`/`profile` only when set), so
+//! `ui.dialog.set` drives it and Create runs `file.new` with them. `__advanced` opens Advanced
+//! Options; `__pixelAspect` picks the view's Pixel Aspect Ratio, applied on Create.
+//!
+//! The dialog draws in its own palette ([`crate::theme::NewDocPalette`]); every glyph on it is
+//! painted here from lines and shapes.
 
 use egui::{Align2, Rect, RichText, Sense, Stroke, StrokeKind, pos2, vec2};
 use serde_json::{Map, Value, json};
@@ -278,13 +283,6 @@ fn card_title(painter: &egui::Painter, title: &str, width: f32, color: egui::Col
     painter.layout_job(job)
 }
 
-/// Paint a page thumbnail with the preset's aspect ratio.
-fn page_icon(ui: &egui::Ui, r: Rect, w: u32, h: u32, t: &Tokens) {
-    let s = 30.0 / (w.max(h) as f32);
-    let page = Rect::from_center_size(r.center(), vec2(w as f32 * s, h as f32 * s));
-    ui.painter().rect_stroke(page, 1.0, Stroke::new(1.2, t.text_dim), StrokeKind::Inside);
-}
-
 /// The Background Contents menu's entry for a colour of the user's own ([`body`]).
 const CUSTOM: &str = "custom";
 /// Side of the Background Contents colour swatch.
@@ -318,7 +316,10 @@ pub fn apply_saved_preset(f: &mut Map<String, Value>, preset: &photocraft_engine
 
 /// Restore every setting of a saved or recent document (all but its name).
 pub fn apply_settings(f: &mut Map<String, Value>, settings: &DocumentSettings) {
-    f.remove("backgroundColor");
+    // Settings without Artboards or a profile turn them off (`command_params` omits defaults).
+    for key in ["backgroundColor", "artboards", "profile"] {
+        f.remove(key);
+    }
     if let Some(params) = settings.command_params().as_object() {
         f.extend(params.clone());
     }
@@ -349,6 +350,8 @@ fn holds(f: &Map<String, Value>, settings: &DocumentSettings) -> bool {
         && f.get("depth").and_then(Value::as_u64).unwrap_or(8) == u64::from(settings.depth)
         && get_s(f, "mode", "rgb") == settings.mode
         && get_s(f, "background", "white") == settings.background
+        && (f.get("artboards").and_then(Value::as_bool) == Some(true)) == settings.artboards
+        && get_s(f, "profile", "working") == settings.profile
 }
 
 /// A card in the preset grid: a built-in preset or a recently created document.
@@ -408,60 +411,293 @@ fn recent_cards(f: &Map<String, Value>, recent: &[DocumentSettings], units: &Uni
     cards
 }
 
-fn saved_presets(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) -> bool {
+/// Width of the Preset Details column.
+const DETAILS_W: f32 = 300.0;
+/// A preset card, and the gap between cards (the dialog tests click at these offsets).
+const CARD: egui::Vec2 = egui::Vec2::new(164.0, 112.0);
+const CARD_GAP: f32 = 8.0;
+
+/// The tabs, in order: the Recent and Saved lists, then the blank-document categories.
+fn tab_names() -> impl Iterator<Item = &'static str> {
+    std::iter::once(CATEGORIES[0].0).chain(["Saved"]).chain(CATEGORIES.iter().skip(1).map(|c| c.0))
+}
+
+/// The pictogram drawn inside a card's page outline: the category a preset belongs to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Glyph {
+    Plain,
+    Photo,
+    Print,
+    Art,
+    Web,
+    Mobile,
+    Film,
+    Clipboard,
+    Saved,
+}
+
+impl Glyph {
+    fn of_category(name: &str) -> Self {
+        match name {
+            "Photo" => Glyph::Photo,
+            "Print" => Glyph::Print,
+            "Art & Illustration" => Glyph::Art,
+            "Web" => Glyph::Web,
+            "Mobile" => Glyph::Mobile,
+            "Film & Video" => Glyph::Film,
+            "Saved" => Glyph::Saved,
+            _ => Glyph::Plain,
+        }
+    }
+
+    /// A built-in preset's glyph: the first category (after Recent) that lists it.
+    fn of_preset(p: &Preset) -> Self {
+        if p.0 == CLIPBOARD {
+            return Glyph::Clipboard;
+        }
+        CATEGORIES.iter().skip(1).find(|c| c.1.iter().any(|q| q.0 == p.0)).map_or(Glyph::Plain, |c| Glyph::of_category(c.0))
+    }
+}
+
+/// Paint a page outline with the preset's aspect ratio in `r` (a 40 pt box), and its category
+/// pictogram inside it. Original drawings made from lines, circles and rectangles.
+fn paint_glyph(p: &egui::Painter, r: Rect, w: u32, h: u32, glyph: Glyph, color: egui::Color32) {
+    let s = 30.0 / (w.max(h).max(1) as f32);
+    let size = vec2((w as f32 * s).max(8.0), (h as f32 * s).max(8.0));
+    let page = Rect::from_center_size(r.center(), size);
+    let stroke = Stroke::new(1.2, color);
+    let thin = Stroke::new(1.0, color);
+    let radius = if glyph == Glyph::Mobile { 3.0 } else { 1.0 };
+    p.rect_stroke(page, radius, stroke, StrokeKind::Inside);
+    let inner = page.shrink(3.0);
+    let at = |fx: f32, fy: f32| pos2(inner.left() + inner.width() * fx, inner.top() + inner.height() * fy);
+    match glyph {
+        Glyph::Plain => {}
+        Glyph::Photo => {
+            p.line_segment([at(0.0, 0.95), at(0.35, 0.5)], thin);
+            p.line_segment([at(0.35, 0.5), at(0.55, 0.75)], thin);
+            p.line_segment([at(0.55, 0.75), at(0.75, 0.55)], thin);
+            p.line_segment([at(0.75, 0.55), at(1.0, 0.95)], thin);
+            p.circle_stroke(at(0.75, 0.22), (inner.width().min(inner.height()) * 0.12).max(1.0), thin);
+        }
+        Glyph::Print => {
+            let fold = (page.width().min(page.height()) * 0.3).max(3.0);
+            p.line_segment([page.right_top() + vec2(-fold, 0.0), page.right_top() + vec2(0.0, fold)], thin);
+            for fy in [0.45, 0.6, 0.75] {
+                p.line_segment([at(0.1, fy), at(0.8, fy)], thin);
+            }
+        }
+        Glyph::Art => {
+            p.line_segment([at(0.1, 0.9), at(0.85, 0.15)], Stroke::new(2.0, color));
+            p.circle_filled(at(0.1, 0.9), 1.5, color);
+        }
+        Glyph::Web => {
+            let bar = page.top() + (page.height() * 0.22).max(3.0);
+            p.line_segment([pos2(page.left(), bar), pos2(page.right(), bar)], thin);
+            for i in 0..3 {
+                p.circle_filled(pos2(page.left() + 3.0 + i as f32 * 3.0, (page.top() + bar) / 2.0), 0.9, color);
+            }
+        }
+        Glyph::Mobile => {
+            let y = page.top() + 3.0;
+            p.line_segment([pos2(page.center().x - 3.0, y), pos2(page.center().x + 3.0, y)], thin);
+        }
+        Glyph::Film => {
+            let hole = 2.0;
+            let n = ((page.width() / 5.0).floor() as usize).clamp(2, 8);
+            for i in 0..n {
+                let x = page.left() + (i as f32 + 0.5) * page.width() / n as f32;
+                p.rect_filled(Rect::from_center_size(pos2(x, page.top() + 2.5), vec2(hole, hole)), 0.0, color);
+                p.rect_filled(Rect::from_center_size(pos2(x, page.bottom() - 2.5), vec2(hole, hole)), 0.0, color);
+            }
+        }
+        Glyph::Clipboard => {
+            let clip = Rect::from_center_size(pos2(page.center().x, page.top()), vec2(page.width() * 0.4, 4.0));
+            p.rect_filled(clip, 1.0, color);
+        }
+        Glyph::Saved => {
+            let x = page.right() - 5.0;
+            let (top, bottom) = (page.top(), page.top() + (page.height() * 0.45).max(6.0));
+            p.line_segment([pos2(x - 2.0, top), pos2(x - 2.0, bottom)], thin);
+            p.line_segment([pos2(x + 2.0, top), pos2(x + 2.0, bottom)], thin);
+            p.line_segment([pos2(x - 2.0, bottom), pos2(x, bottom - 2.0)], thin);
+            p.line_segment([pos2(x + 2.0, bottom), pos2(x, bottom - 2.0)], thin);
+        }
+    }
+}
+
+/// The Recent tab's welcome illustration: three overlapping pages with a plus badge.
+fn paint_hero_art(p: &egui::Painter, r: Rect, pal: &crate::theme::NewDocPalette) {
+    let page = vec2(r.height() * 0.62, r.height() * 0.8);
+    for (i, alpha) in [(2.0, 0.35), (1.0, 0.6), (0.0, 1.0)] {
+        let rect = Rect::from_min_size(r.left_top() + vec2(10.0 + i * 12.0, 4.0 + (2.0 - i) * 4.0), page);
+        p.rect_filled(rect, 3.0, pal.card.lerp_to_gamma(pal.text, 0.08 * alpha));
+        p.rect_stroke(rect, 3.0, Stroke::new(1.2, pal.section.gamma_multiply(alpha)), StrokeKind::Inside);
+    }
+    let front = Rect::from_min_size(r.left_top() + vec2(10.0, 12.0), page);
+    let c = front.right_bottom() - vec2(2.0, 2.0);
+    p.circle_filled(c, 9.0, pal.primary);
+    p.line_segment([c - vec2(4.0, 0.0), c + vec2(4.0, 0.0)], Stroke::new(1.8, pal.primary_text));
+    p.line_segment([c - vec2(0.0, 4.0), c + vec2(0.0, 4.0)], Stroke::new(1.8, pal.primary_text));
+}
+
+/// The save-preset pictogram: a page with an arrow down into a tray.
+fn paint_save_icon(p: &egui::Painter, r: Rect, color: egui::Color32) {
+    let s = Stroke::new(1.4, color);
+    let c = r.center();
+    p.line_segment([c + vec2(0.0, -6.0), c + vec2(0.0, 2.0)], s);
+    p.line_segment([c + vec2(-3.5, -1.5), c + vec2(0.0, 2.0)], s);
+    p.line_segment([c + vec2(3.5, -1.5), c + vec2(0.0, 2.0)], s);
+    p.line_segment([c + vec2(-6.0, 1.0), c + vec2(-6.0, 6.0)], s);
+    p.line_segment([c + vec2(-6.0, 6.0), c + vec2(6.0, 6.0)], s);
+    p.line_segment([c + vec2(6.0, 6.0), c + vec2(6.0, 1.0)], s);
+}
+
+/// A bin pictogram for a saved preset's delete button.
+fn paint_bin_icon(p: &egui::Painter, r: Rect, color: egui::Color32) {
+    let s = Stroke::new(1.2, color);
+    let c = r.center();
+    p.line_segment([c + vec2(-5.0, -3.5), c + vec2(5.0, -3.5)], s);
+    p.line_segment([c + vec2(-1.5, -5.0), c + vec2(1.5, -5.0)], s);
+    let body = Rect::from_min_max(c + vec2(-3.5, -3.5), c + vec2(3.5, 5.0));
+    p.rect_stroke(body, 1.0, s, StrokeKind::Middle);
+    p.line_segment([c + vec2(0.0, -1.5), c + vec2(0.0, 3.0)], s);
+}
+
+/// A small square icon button painted by `paint`, named `label` for accessibility and tests.
+fn painted_button(ui: &mut egui::Ui, label: &str, tooltip: &str, selected: bool, paint: impl FnOnce(&egui::Painter, Rect, egui::Color32)) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+    paint_small_button(ui, r, &resp, &t, selected, paint);
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, label));
+    resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn paint_small_button(ui: &egui::Ui, r: Rect, resp: &egui::Response, t: &Tokens, selected: bool, paint: impl FnOnce(&egui::Painter, Rect, egui::Color32)) {
+    if selected {
+        ui.painter().rect_filled(r, t.radius_sm, t.accent_soft);
+    } else if resp.hovered() {
+        ui.painter().rect_filled(r, t.radius_sm, t.hover);
+    }
+    paint(ui.painter(), r, if resp.hovered() || selected { t.text } else { t.icon });
+}
+
+/// What a card shows.
+struct CardView<'a> {
+    w: u32,
+    h: u32,
+    glyph: Glyph,
+    title: &'a str,
+    size: &'a str,
+    on: bool,
+}
+
+/// Paint a preset card (fill, ring when selected, glyph, title, size line) and name it for
+/// accessibility with its selected state. Returns the card's response and whether the title
+/// was cut short.
+fn card(ui: &mut egui::Ui, pal: &crate::theme::NewDocPalette, v: &CardView) -> (egui::Response, bool) {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(CARD, Sense::click());
+    let painter = ui.painter();
+    painter.rect_filled(r, t.radius_lg, if resp.hovered() && !v.on { pal.card_hover } else { pal.card });
+    if v.on {
+        painter.rect_stroke(r, t.radius_lg, Stroke::new(2.0, pal.selected_outline), StrokeKind::Inside);
+    }
+    paint_glyph(painter, Rect::from_center_size(pos2(r.center().x, r.top() + 34.0), vec2(40.0, 40.0)), v.w, v.h, v.glyph, pal.section);
+    let title = card_title(painter, v.title, CARD.x - 12.0, pal.text);
+    let elided = title.elided;
+    painter.galley(pos2(r.center().x, r.top() + 70.0 - title.size().y / 2.0), title, pal.text);
+    painter.text(pos2(r.center().x, r.top() + 97.0), Align2::CENTER_CENTER, v.size, egui::FontId::proportional(10.5), pal.section);
+    let (on, title) = (v.on, v.title.to_owned());
+    resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, &title));
+    (resp.on_hover_cursor(egui::CursorIcon::PointingHand), elided)
+}
+
+/// How many cards fit across `width`.
+fn columns(width: f32) -> usize {
+    (((width + CARD_GAP) / (CARD.x + CARD_GAP)).floor() as usize).max(1)
+}
+
+/// The section heading above the cards: `text` in the palette's heading colour.
+fn heading(ui: &mut egui::Ui, pal: &crate::theme::NewDocPalette, text: &str) {
+    ui.label(RichText::new(text).size(11.0).color(pal.section));
+    ui.add_space(6.0);
+}
+
+fn saved_presets(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, pal: &crate::theme::NewDocPalette) -> bool {
     let presets = app.session.presets.documents.clone();
+    heading(ui, pal, &crate::i18n::fmt(tl!("YOUR SAVED PRESETS ({n})"), &[("n", &presets.len().to_string())]));
     if presets.is_empty() {
-        ui.label(tl!("No saved presets yet."));
+        ui.label(RichText::new(tl!("No saved presets yet.")).color(pal.section));
         return false;
     }
     let mut create = false;
-    egui::ScrollArea::vertical().id_salt("saved-document-presets").max_height(320.0).show(ui, |ui| {
-        for preset in &presets {
-            ui.push_id(&preset.name, |ui| {
-                ui.horizontal(|ui| {
-                    let selected = get_s(f, "__savedPreset", "") == preset.name;
-                    let label = egui::Button::new(&preset.name).selected(selected).truncate();
-                    let response = ui.add_sized(vec2(422.0, 32.0), label).on_hover_text(&preset.name);
-                    if response.clicked() {
-                        apply_saved_preset(f, preset);
-                        create |= response.double_clicked() || response.triple_clicked();
-                    }
-                    if widgets::secondary_button(ui, tl!("Delete"), 76.0).clicked() {
-                        match app.run("document.presets.delete", json!({"name":preset.name})) {
-                            Ok(_) => {
-                                f.remove("__presetError");
-                                if selected {
-                                    f.remove("__savedPreset");
+    let cols = columns(ui.available_width());
+    egui::ScrollArea::vertical().id_salt("saved-document-presets").max_height(3.0 * (CARD.y + CARD_GAP)).show(ui, |ui| {
+        for row in presets.chunks(cols) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = CARD_GAP;
+                for preset in row {
+                    ui.push_id(&preset.name, |ui| {
+                        let s = &preset.settings;
+                        let selected = get_s(f, "__savedPreset", "") == preset.name;
+                        let size = Card::Recent(s.clone()).size_line(&UnitsAndRulers::default(), f);
+                        let (resp, _) =
+                            card(ui, pal, &CardView { w: s.width, h: s.height, glyph: Glyph::Saved, title: &preset.name, size: &size, on: selected });
+                        let rect = resp.rect;
+                        let resp = resp.on_hover_text(format!(
+                            "{} · {} × {} px @ {} ppi · {}/{}",
+                            preset.name,
+                            s.width,
+                            s.height,
+                            s.resolution,
+                            s.mode.to_uppercase(),
+                            s.depth
+                        ));
+                        // The delete button sits in the card's corner, above the card's own sense.
+                        let bin = Rect::from_min_size(rect.right_top() + vec2(-26.0, 4.0), vec2(22.0, 22.0));
+                        let del = ui.interact(bin, ui.id().with("delete"), Sense::click());
+                        let t = Tokens::get(ui.ctx());
+                        paint_small_button(ui, bin, &del, &t, false, paint_bin_icon);
+                        del.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Delete")));
+                        let del = del.on_hover_text(tl!("Delete Preset")).on_hover_cursor(egui::CursorIcon::PointingHand);
+                        if del.clicked() {
+                            match app.run("document.presets.delete", json!({"name":preset.name})) {
+                                Ok(_) => {
+                                    f.remove("__presetError");
+                                    if selected {
+                                        f.remove("__savedPreset");
+                                    }
+                                }
+                                Err(e) => {
+                                    f.insert("__presetError".into(), json!(e.to_string()));
                                 }
                             }
-                            Err(e) => {
-                                f.insert("__presetError".into(), json!(e.to_string()));
-                            }
+                        } else if resp.clicked() {
+                            apply_saved_preset(f, preset);
+                            create |= resp.double_clicked() || resp.triple_clicked();
                         }
-                    }
-                });
-                let s = &preset.settings;
-                small_label(ui, &format!("{} × {} px @ {} ppi · {}/{}", s.width, s.height, s.resolution, s.mode.to_uppercase(), s.depth));
-                ui.add_space(8.0);
+                    });
+                }
             });
+            ui.add_space(CARD_GAP);
         }
     });
+    if let Some(error) = f.get("__presetError").and_then(Value::as_str) {
+        ui.add(egui::Label::new(error).wrap());
+    }
     create
 }
 
+/// The Save Preset form, shown below the name while the save button is on.
 fn save_preset(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
-    ui.add_space(12.0);
-    if f.get("__savingPreset").and_then(Value::as_bool) != Some(true) {
-        if widgets::secondary_button(ui, tl!("Save Preset…"), 240.0).clicked() {
-            f.insert("__savingPreset".into(), json!(true));
-            f.remove("__presetError");
-        }
-    } else {
+    if f.get("__savingPreset").and_then(Value::as_bool) == Some(true) {
+        ui.add_space(4.0);
         // Consume before TextEdit sees Enter, so naming can never confirm the outer dialog.
         let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         let label = ui.label(tl!("Preset Name"));
         let mut name = get_s(f, "__presetName", "");
-        ui.add(egui::TextEdit::singleline(&mut name).id_salt("document-preset-name").desired_width(240.0).char_limit(255)).labelled_by(label.id);
+        ui.add(egui::TextEdit::singleline(&mut name).id_salt("document-preset-name").desired_width(DETAILS_W - 28.0).char_limit(255)).labelled_by(label.id);
         f.insert("__presetName".into(), json!(name));
         ui.horizontal(|ui| {
             if widgets::secondary_button(ui, tl!("Save"), 110.0).clicked() || enter {
@@ -486,38 +722,145 @@ fn save_preset(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<St
                 f.remove("__presetError");
             }
         });
+        if let Some(error) = f.get("__presetError").and_then(Value::as_str) {
+            ui.add(egui::Label::new(error).wrap());
+        }
     }
-    if let Some(error) = f.get("__presetError").and_then(Value::as_str) {
-        ui.add(egui::Label::new(error).wrap());
+}
+
+/// View › Pixel Aspect Ratio's presets: (id, menu label).
+pub const PIXEL_ASPECTS: &[(&str, &str)] = &[
+    ("square", "Square"),
+    ("d1DvNtsc", "D1/DV NTSC (0.91)"),
+    ("d1DvPal", "D1/DV PAL (1.09)"),
+    ("d1DvNtscWidescreen", "D1/DV NTSC Widescreen (1.21)"),
+    ("hdv1080", "HDV 1080/DVCPRO HD 720 (1.33)"),
+    ("d1DvPalWidescreen", "D1/DV PAL Widescreen (1.46)"),
+    ("dvcproHd1080", "DVCPRO HD 1080/HDV 1080 (1.5)"),
+    ("anamorphic2To1", "Anamorphic 2:1 (2)"),
+];
+
+/// The colour mode a `mode` field names.
+fn mode_of(mode: &str) -> photocraft_doc::ColorMode {
+    match mode {
+        "gray" | "grayscale" => photocraft_doc::ColorMode::Grayscale,
+        "cmyk" => photocraft_doc::ColorMode::Cmyk,
+        "lab" => photocraft_doc::ColorMode::Lab,
+        _ => photocraft_doc::ColorMode::Rgb,
     }
+}
+
+/// Whether the `profile` field (a built-in id) can tag a `mode` document; "working" and "none"
+/// always can.
+fn profile_fits(profile: &str, mode: &str) -> bool {
+    match photocraft_cms::Builtin::from_id(profile) {
+        Some(b) => b.profile().color_space == photocraft_engine::color_cmds::mode_space(mode_of(mode)),
+        None => true,
+    }
+}
+
+/// Advanced Options: the colour profile the document is tagged with, and the view's pixel
+/// aspect ratio (applied on Create).
+fn advanced_options(app: &crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, width: f32) {
+    let t = Tokens::get(ui.ctx());
+    let open = f.get("__advanced").and_then(Value::as_bool) == Some(true);
+    let label = tl!("Advanced Options");
+    let (r, resp) = ui.allocate_exact_size(vec2(width, 22.0), Sense::click());
+    let c = pos2(r.left() + 6.0, r.center().y);
+    let chevron =
+        if open { [c + vec2(-3.5, -1.5), c + vec2(0.0, 2.0), c + vec2(3.5, -1.5)] } else { [c + vec2(-1.5, -3.5), c + vec2(2.0, 0.0), c + vec2(-1.5, 3.5)] };
+    let stroke = Stroke::new(1.4, if resp.hovered() { t.text } else { t.text_dim });
+    ui.painter().line_segment([chevron[0], chevron[1]], stroke);
+    ui.painter().line_segment([chevron[1], chevron[2]], stroke);
+    ui.painter().text(
+        pos2(r.left() + 16.0, r.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(12.0),
+        if resp.hovered() { t.text } else { t.text_dim },
+    );
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, label));
+    if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        f.insert("__advanced".into(), json!(!open));
+    }
+    if !open {
+        return;
+    }
+    let mode = get_s(f, "mode", "rgb");
+    small_label(ui, tl!("Color Profile"));
+    let working = app.session.color.working(mode_of(&mode)).description.clone();
+    let space = photocraft_engine::color_cmds::mode_space(mode_of(&mode));
+    let mut opts: Vec<(String, String)> = vec![("working".into(), crate::i18n::fmt(tl!("Working space ({profile})"), &[("profile", &working)]))];
+    opts.extend(photocraft_cms::Builtin::ALL.iter().filter(|b| b.profile().color_space == space).map(|b| (b.id().to_string(), b.description().to_string())));
+    opts.push(("none".into(), tl!("No color profile (untagged)").to_string()));
+    let shown: Vec<(String, &str)> = opts.iter().map(|(k, v)| (k.clone(), v.as_str())).collect();
+    let mut profile = get_s(f, "profile", "working");
+    if widgets::dropdown(ui, "nd-profile", &mut profile, &shown, width - 8.0) {
+        if profile == "working" {
+            f.remove("profile");
+        } else {
+            f.insert("profile".into(), json!(profile));
+        }
+        f.remove("__savedPreset");
+    }
+    ui.add_space(4.0);
+    let tip = tl!("Pixel Aspect Ratio is a view setting: it applies to every open document.");
+    small_label(ui, tl!("Pixel Aspect Ratio"));
+    let current = if PIXEL_ASPECTS.iter().any(|p| p.0 == app.ui.view.pixel_aspect) { app.ui.view.pixel_aspect.as_str() } else { "square" };
+    let mut aspect = get_s(f, "__pixelAspect", current);
+    let lang = crate::i18n::current();
+    let ids: Vec<String> = PIXEL_ASPECTS.iter().map(|p| format!("view.pixelAspectRatio.{}", p.0)).collect();
+    let opts: Vec<(String, &str)> = PIXEL_ASPECTS.iter().zip(&ids).map(|(p, id)| (p.0.to_string(), crate::i18n::tr_id(lang, id, p.1))).collect();
+    if widgets::dropdown(ui, "nd-pixel-aspect", &mut aspect, &opts, width - 8.0) {
+        f.insert("__pixelAspect".into(), json!(aspect));
+    }
+    ui.label(RichText::new(tip).size(10.5).color(t.text_faint)).on_hover_text(tip);
+}
+
+/// The view command Create runs for the Pixel Aspect Ratio picked under Advanced Options, if it
+/// changes the view's.
+pub fn pixel_aspect_command(f: &Map<String, Value>, current: &str) -> Option<String> {
+    let pick = f.get("__pixelAspect").and_then(Value::as_str)?;
+    (pick != current && PIXEL_ASPECTS.iter().any(|p| p.0 == pick)).then(|| format!("view.pixelAspectRatio.{pick}"))
 }
 
 /// Returns whether a preset double-click requested creation, after applying its settings.
 /// A recent category click can make egui count the preset double-click as a triple-click.
 pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) -> bool {
     let t = Tokens::get(ui.ctx());
+    let pal = t.new_doc_palette();
+    // Text fields and dropdowns in the dialog's own colours (scoped to this ui).
+    let v = ui.visuals_mut();
+    v.extreme_bg_color = pal.input;
+    v.widgets.inactive.bg_fill = pal.dropdown;
+    v.widgets.inactive.weak_bg_fill = pal.dropdown;
     let cat = get_s(f, "__category", "Recent");
     let mut create = false;
     // Category tabs.
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 18.0;
-        for name in CATEGORIES.iter().map(|c| c.0).chain(["Saved"]) {
+        ui.spacing_mut().item_spacing.x = 22.0;
+        for name in tab_names() {
             let on = cat == name;
             let label = if name == "Saved" { tl!("Saved") } else { tl!(name) };
             let r = ui
-                .add(egui::Label::new(RichText::new(label).size(13.0).color(if on { t.text } else { t.text_dim })).selectable(false).sense(Sense::click()))
+                .add(
+                    egui::Label::new(RichText::new(label).size(13.0).color(if on { pal.text } else { pal.tab_inactive }))
+                        .selectable(false)
+                        .sense(Sense::click()),
+                )
                 .on_hover_cursor(egui::CursorIcon::PointingHand);
+            r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label));
             if on {
-                ui.painter().line_segment([r.rect.left_bottom() + vec2(0.0, 3.0), r.rect.right_bottom() + vec2(0.0, 3.0)], Stroke::new(2.0, t.text));
+                ui.painter().line_segment([r.rect.left_bottom() + vec2(0.0, 4.0), r.rect.right_bottom() + vec2(0.0, 4.0)], Stroke::new(2.0, pal.text));
             }
             if r.clicked() {
                 f.insert("__category".into(), json!(name));
             }
         }
     });
-    ui.add_space(6.0);
-    widgets::hairline(ui);
     ui.add_space(8.0);
+    widgets::hairline(ui);
+    ui.add_space(10.0);
     let units = app.session.prefs().units_and_rulers.clone();
     let presets: Vec<Card> = match CATEGORIES.iter().find(|c| c.0 == cat) {
         Some(c) if c.0 != CATEGORIES[0].0 => c.1.iter().copied().map(Card::Builtin).collect(),
@@ -531,49 +874,61 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
         })
         .collect();
     let chosen = get_s(f, "__preset", "");
+    let gap = 12.0;
+    let well_w = (ui.available_width() - DETAILS_W - gap).max(CARD.x + 24.0);
     ui.horizontal_top(|ui| {
-        // Left: preset grid.
-        ui.vertical(|ui| {
-            ui.set_width(520.0);
+        ui.spacing_mut().item_spacing.x = gap;
+        // Left: the well with the cards.
+        egui::Frame::new().fill(pal.well).corner_radius(t.radius_lg).inner_margin(12).show(ui, |ui| {
+            ui.set_width(well_w - 24.0);
+            ui.set_min_height(3.0 * (CARD.y + CARD_GAP) + 40.0);
             if cat == "Saved" {
-                create |= saved_presets(app, ui, f);
+                create |= saved_presets(app, ui, f, &pal);
                 return;
             }
-            ui.label(RichText::new(crate::i18n::fmt(tl!("BLANK DOCUMENT PRESETS ({n})"), &[("n", &presets.len().to_string())])).size(11.0).color(t.text_faint));
-            ui.add_space(6.0);
-            let card = vec2(164.0, 112.0);
-            // Up to 20 recent documents: scroll past three rows rather than grow the dialog.
-            egui::ScrollArea::vertical().id_salt("new-document-presets").max_height(3.0 * (card.y + 8.0)).show(ui, |ui| {
-                for row in presets.chunks(3) {
+            if cat == CATEGORIES[0].0 {
+                // Our own welcome card on the Recent tab.
+                egui::Frame::new().fill(pal.hero).corner_radius(t.radius_lg).inner_margin(12).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
+                        let (r, _) = ui.allocate_exact_size(vec2(84.0, 56.0), Sense::hover());
+                        paint_hero_art(ui.painter(), r, &pal);
+                        ui.add_space(8.0);
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new(tl!("Start a new canvas")).font(crate::theme::semibold(17.0)).color(pal.text));
+                            ui.add(
+                                egui::Label::new(RichText::new(tl!("Choose a preset below, or set your own size in Preset Details.")).color(pal.section))
+                                    .wrap(),
+                            );
+                        });
+                    });
+                });
+                ui.add_space(12.0);
+            }
+            let title = if cat == CATEGORIES[0].0 { tl!("YOUR RECENT ITEMS ({n})") } else { tl!("BLANK DOCUMENT PRESETS ({n})") };
+            heading(ui, &pal, &crate::i18n::fmt(title, &[("n", &presets.len().to_string())]));
+            let cols = columns(ui.available_width());
+            // Up to 20 recent documents: scroll past three rows rather than grow the dialog.
+            egui::ScrollArea::vertical().id_salt("new-document-presets").max_height(3.0 * (CARD.y + CARD_GAP)).show(ui, |ui| {
+                for row in presets.chunks(cols) {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = CARD_GAP;
                         for c in row {
-                            let (r, resp) = ui.allocate_exact_size(card, Sense::click());
                             let (w, h, _) = c.size(&units);
                             let on = match c {
                                 Card::Builtin(p) => chosen == p.0,
                                 Card::Recent(settings) => holds(f, settings),
                             };
-                            ui.painter().rect_filled(
-                                r,
-                                t.radius,
-                                if on {
-                                    t.row_selected
-                                } else if resp.hovered() {
-                                    t.hover
-                                } else {
-                                    t.field
-                                },
-                            );
-                            if on {
-                                ui.painter().rect_stroke(r, t.radius, Stroke::new(1.5, t.accent), StrokeKind::Inside);
-                            }
-                            page_icon(ui, Rect::from_center_size(pos2(r.center().x, r.top() + 34.0), vec2(40.0, 40.0)), w, h, &t);
-                            let title = card_title(ui.painter(), tl!(c.title()), card.x - 12.0, t.text);
-                            let elided = title.elided;
-                            ui.painter().galley(pos2(r.center().x, r.top() + 70.0 - title.size().y / 2.0), title, t.text);
+                            let glyph = match c {
+                                Card::Builtin(p) => Glyph::of_preset(p),
+                                Card::Recent(s) => CATEGORIES
+                                    .iter()
+                                    .flat_map(|c| c.1.iter())
+                                    .find(|p| (p.1, p.2, p.3) == (s.width, s.height, s.resolution))
+                                    .map_or(Glyph::Plain, Glyph::of_preset),
+                            };
                             let size = c.size_line(&units, f);
-                            ui.painter().text(pos2(r.center().x, r.top() + 97.0), Align2::CENTER_CENTER, &size, egui::FontId::proportional(10.5), t.text_faint);
+                            let (resp, elided) = card(ui, &pal, &CardView { w, h, glyph, title: tl!(c.title()), size: &size, on });
                             let resp = match c {
                                 // A recent document's tooltip names everything it restores.
                                 Card::Recent(s) => {
@@ -598,170 +953,207 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
                             }
                         }
                     });
-                    ui.add_space(8.0);
+                    ui.add_space(CARD_GAP);
                 }
             });
         });
-        ui.add_space(10.0);
         // Right: Preset Details.
-        ui.vertical(|ui| {
-            ui.set_width(260.0);
-            ui.label(RichText::new(tl!("PRESET DETAILS")).size(11.0).color(t.text_faint));
-            ui.add_space(4.0);
-            // Keep the canonical English default in state; only the TextEdit shows a translation.
-            let raw = get_s(f, "name", "Untitled-1");
-            let mut name = if raw == "Untitled-1" { tl!("Untitled-1").to_string() } else { raw };
-            let r = ui.add(egui::TextEdit::singleline(&mut name).desired_width(250.0).font(egui::FontId::proportional(15.0)));
-            if r.changed() {
-                f.insert("name".into(), json!(name));
-            }
-            crate::field_tab::register(ui.ctx(), r.id);
-            // Photoshop opens the dialog with the name selected, so typing replaces it and Tab goes
-            // straight on to Width. (`__focused` marks that this instance has had its turn.)
-            if !f.contains_key("__focused") {
-                f.insert("__focused".into(), json!(true));
-                crate::field_tab::focus(ui.ctx(), r.id);
-            }
-            if r.gained_focus() {
-                crate::field_tab::select_all(ui.ctx(), r.id, &name);
-            }
-            ui.add_space(8.0);
-            let ppi = get_f(f, "resolution", 72.0);
-            let mut unit = get_s(f, "__unit", "px");
-            // A typed unit (`210mm` while in pixels) converts at the new document's resolution.
-            let units = widgets::FieldUnits { unit: widgets::unit_of_key(&unit), dpi: f64::from(ppi), ppi: 72.0 };
-            small_label(ui, tl!("Width"));
-            ui.horizontal(|ui| {
-                let mut w = shown_size(f, "width", 1920.0, &unit, ppi);
-                if widgets::value_field_units(ui, &mut w, 0.01..=300_000.0, 110.0, widgets::unit_decimals(&unit), units).changed() {
-                    set_size(f, "width", w, &unit, ppi);
-                }
-                let opts: Vec<(String, &str)> = UNITS.iter().map(|u| (u.0.to_string(), u.1)).collect();
-                if widgets::dropdown(ui, "nd-unit", &mut unit, &opts, 120.0) {
-                    f.insert("__unit".into(), json!(unit));
-                    f.remove("__savedPreset");
-                }
+        egui::Frame::new().fill(pal.details).corner_radius(t.radius_lg).inner_margin(14).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let inner = DETAILS_W - 28.0;
+            ui.set_width(inner);
+            ui.vertical(|ui| {
+                ui.label(RichText::new(tl!("PRESET DETAILS")).size(11.0).color(pal.section));
+                ui.add_space(4.0);
+                details(app, ui, f, inner);
             });
-            small_label(ui, tl!("Height"));
-            ui.horizontal(|ui| {
-                let mut h = shown_size(f, "height", 1080.0, &unit, ppi);
-                if widgets::value_field_units(ui, &mut h, 0.01..=300_000.0, 110.0, widgets::unit_decimals(&unit), units).changed() {
-                    set_size(f, "height", h, &unit, ppi);
-                }
-                ui.add_space(6.0);
-                // Page orientation (≠ Type › Orientation → Hướng chữ).
-                small_label(ui, crate::i18n::tr_ctx(crate::i18n::current(), "document", "Orientation"));
-                let (w, h) = (get_f(f, "width", 1920.0), get_f(f, "height", 1080.0));
-                for (icon, portrait) in [("rectangle-vertical", true), ("rectangle-horizontal", false)] {
-                    // Tooltip strings are looked up via `icons::button` → `tl!`; enum/state is aspect swap only.
-                    if icons::button(ui, icon, 24.0, (h > w) == portrait, if portrait { "Portrait" } else { "Landscape" }).clicked() {
-                        // The pick also turns the presets (`oriented`), even when the size already has it.
-                        f.insert("__orientation".into(), json!(if portrait { "portrait" } else { "landscape" }));
-                        if (h > w) != portrait {
-                            swap_size(f);
-                        }
-                    }
-                }
-            });
-            ui.add_space(4.0);
-            small_label(ui, tl!("Resolution"));
-            ui.horizontal(|ui| {
-                let per_cm = get_s(f, "__resUnit", "in") == "cm";
-                let mut r = if per_cm { ppi / 2.54 } else { ppi };
-                if widgets::value_field(ui, &mut r, 1.0..=30_000.0, "", 110.0).changed() {
-                    set_resolution(f, if per_cm { r * 2.54 } else { r });
-                }
-                let mut ru = get_s(f, "__resUnit", "in");
-                if widgets::dropdown(ui, "nd-resunit", &mut ru, &[("in".to_string(), tl!("Pixels/Inch")), ("cm".to_string(), tl!("Pixels/Centimeter"))], 120.0)
-                {
-                    f.insert("__resUnit".into(), json!(ru));
-                    f.remove("__savedPreset");
-                }
-            });
-            ui.add_space(4.0);
-            small_label(ui, tl!("Color Mode"));
-            ui.horizontal(|ui| {
-                let mut mode = get_s(f, "mode", "rgb");
-                if widgets::dropdown(
-                    ui,
-                    "nd-mode",
-                    &mut mode,
-                    &[
-                        ("gray".to_string(), tl!("Grayscale")),
-                        ("rgb".to_string(), tl!("RGB Color")),
-                        ("cmyk".to_string(), tl!("CMYK Color")),
-                        ("lab".to_string(), tl!("Lab Color")),
-                    ],
-                    110.0,
-                ) {
-                    f.insert("mode".into(), json!(mode));
-                    f.remove("__savedPreset");
-                }
-                let mut depth = f.get("depth").and_then(Value::as_u64).unwrap_or(8);
-                let depth_options: Vec<(u64, &str, &str)> = DEPTH_OPTIONS.iter().map(|(bits, label, tooltip)| (*bits, *label, *tooltip)).collect();
-                if widgets::dropdown_with_tooltips(ui, "nd-depth", &mut depth, &depth_options, 120.0) {
-                    f.insert("depth".into(), json!(depth));
-                    f.remove("__savedPreset");
-                }
-            });
-            ui.add_space(4.0);
-            small_label(ui, tl!("Background Contents"));
-            // A custom colour is kept as its "#rrggbb", which `file.new` takes as is (#4789).
-            let current = get_s(f, "background", "white");
-            let mut bg = if crate::color_picker_ui::parse_hex(&current).is_some() { CUSTOM.to_string() } else { current.clone() };
-            let opts = [
-                ("white".to_string(), tl!("White")),
-                ("black".to_string(), tl!("Black")),
-                ("backgroundColor".to_string(), tl!("Background Color")),
-                ("transparent".to_string(), tl!("Transparent")),
-                (CUSTOM.to_string(), tl!("Custom…")),
-            ];
-            let shown = background_rgb(app, f);
-            let mut pick = false;
-            ui.horizontal(|ui| {
-                if widgets::dropdown(ui, "nd-bg", &mut bg, &opts, 240.0 - SWATCH - 6.0) {
-                    if bg == CUSTOM {
-                        // Custom… opens the Color Picker on the colour shown so far.
-                        pick = true;
-                    } else {
-                        f.insert("background".into(), json!(bg));
-                    }
-                    f.remove("__savedPreset");
-                    // A fresh choice of Background Color uses today's toolbox colour. Selecting a
-                    // saved preset instead restores the colour captured when it was saved.
-                    f.remove("backgroundColor");
-                }
-                // Photoshop's swatch beside the menu: the colour the canvas starts with; a click
-                // opens the Color Picker, as Custom… does.
-                let (r, resp) = ui.allocate_exact_size(vec2(SWATCH, SWATCH), Sense::click());
-                match shown {
-                    Some(c) => {
-                        ui.painter().rect_filled(
-                            r,
-                            2.0,
-                            egui::Color32::from_rgb((c[0] * 255.0).round() as u8, (c[1] * 255.0).round() as u8, (c[2] * 255.0).round() as u8),
-                        );
-                    }
-                    None => widgets::checker(ui.painter(), r, 4.0),
-                }
-                ui.painter().rect_stroke(r, 2.0, Stroke::new(1.0, Tokens::get(ui.ctx()).field_border), StrokeKind::Inside);
-                let resp = resp.on_hover_text(tl!("Custom background color")).on_hover_cursor(egui::CursorIcon::PointingHand);
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Custom background color")));
-                if resp.clicked() {
-                    pick = true;
-                    f.remove("__savedPreset");
-                }
-            });
-            if pick {
-                let start = shown.unwrap_or([1.0; 3]);
-                f.insert("background".into(), json!(crate::color_picker_ui::hex(start)));
-                f.remove("backgroundColor");
-                crate::color_picker_ui::request_field(f, "background", &crate::color_picker_ui::title_for(tl!("Background Contents")));
-            }
-            save_preset(app, ui, f);
         });
     });
     create
+}
+
+/// The Preset Details column's fields.
+fn details(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, inner: f32) {
+    ui.horizontal(|ui| {
+        // Keep the canonical English default in state; only the TextEdit shows a translation.
+        let raw = get_s(f, "name", "Untitled-1");
+        let mut name = if raw == "Untitled-1" { tl!("Untitled-1").to_string() } else { raw };
+        let r = ui.add(egui::TextEdit::singleline(&mut name).desired_width(inner - 24.0 - 8.0).font(egui::FontId::proportional(15.0)));
+        if r.changed() {
+            f.insert("name".into(), json!(name));
+        }
+        crate::field_tab::register(ui.ctx(), r.id);
+        // Photoshop opens the dialog with the name selected, so typing replaces it and Tab goes
+        // straight on to Width. (`__focused` marks that this instance has had its turn.)
+        if !f.contains_key("__focused") {
+            f.insert("__focused".into(), json!(true));
+            crate::field_tab::focus(ui.ctx(), r.id);
+        }
+        if r.gained_focus() {
+            crate::field_tab::select_all(ui.ctx(), r.id, &name);
+        }
+        let saving = f.get("__savingPreset").and_then(Value::as_bool) == Some(true);
+        if painted_button(ui, tl!("Save Preset…"), tl!("Save Preset…"), saving, paint_save_icon).clicked() {
+            if saving {
+                f.remove("__savingPreset");
+            } else {
+                f.insert("__savingPreset".into(), json!(true));
+            }
+            f.remove("__presetError");
+        }
+    });
+    save_preset(app, ui, f);
+    ui.add_space(8.0);
+    let ppi = get_f(f, "resolution", 72.0);
+    let mut unit = get_s(f, "__unit", "px");
+    // A typed unit (`210mm` while in pixels) converts at the new document's resolution.
+    let units = widgets::FieldUnits { unit: widgets::unit_of_key(&unit), dpi: f64::from(ppi), ppi: 72.0 };
+    small_label(ui, tl!("Width"));
+    ui.horizontal(|ui| {
+        let mut w = shown_size(f, "width", 1920.0, &unit, ppi);
+        if widgets::value_field_units(ui, &mut w, 0.01..=300_000.0, 110.0, widgets::unit_decimals(&unit), units).changed() {
+            set_size(f, "width", w, &unit, ppi);
+        }
+        let opts: Vec<(String, &str)> = UNITS.iter().map(|u| (u.0.to_string(), u.1)).collect();
+        if widgets::dropdown(ui, "nd-unit", &mut unit, &opts, 132.0) {
+            f.insert("__unit".into(), json!(unit));
+            f.remove("__savedPreset");
+        }
+    });
+    small_label(ui, tl!("Height"));
+    ui.horizontal(|ui| {
+        let mut h = shown_size(f, "height", 1080.0, &unit, ppi);
+        if widgets::value_field_units(ui, &mut h, 0.01..=300_000.0, 110.0, widgets::unit_decimals(&unit), units).changed() {
+            set_size(f, "height", h, &unit, ppi);
+        }
+        ui.add_space(6.0);
+        // Page orientation (≠ Type › Orientation → Hướng chữ).
+        small_label(ui, crate::i18n::tr_ctx(crate::i18n::current(), "document", "Orientation"));
+        let (w, h) = (get_f(f, "width", 1920.0), get_f(f, "height", 1080.0));
+        for (icon, portrait) in [("rectangle-vertical", true), ("rectangle-horizontal", false)] {
+            // Tooltip strings are looked up via `icons::button` → `tl!`; enum/state is aspect swap only.
+            if icons::button(ui, icon, 24.0, (h > w) == portrait, if portrait { "Portrait" } else { "Landscape" }).clicked() {
+                // The pick also turns the presets (`oriented`), even when the size already has it.
+                f.insert("__orientation".into(), json!(if portrait { "portrait" } else { "landscape" }));
+                if (h > w) != portrait {
+                    swap_size(f);
+                }
+            }
+        }
+    });
+    ui.add_space(2.0);
+    let mut boards = f.get("artboards").and_then(Value::as_bool) == Some(true);
+    if widgets::checkbox(ui, &mut boards, tl!("Artboards")).changed() {
+        // Only sent when on, so `file.new` and saved settings stay as they were without it.
+        if boards {
+            f.insert("artboards".into(), json!(true));
+        } else {
+            f.remove("artboards");
+        }
+        f.remove("__savedPreset");
+    }
+    ui.add_space(4.0);
+    small_label(ui, tl!("Resolution"));
+    ui.horizontal(|ui| {
+        let per_cm = get_s(f, "__resUnit", "in") == "cm";
+        let mut r = if per_cm { ppi / 2.54 } else { ppi };
+        if widgets::value_field(ui, &mut r, 1.0..=30_000.0, "", 110.0).changed() {
+            set_resolution(f, if per_cm { r * 2.54 } else { r });
+        }
+        let mut ru = get_s(f, "__resUnit", "in");
+        if widgets::dropdown(ui, "nd-resunit", &mut ru, &[("in".to_string(), tl!("Pixels/Inch")), ("cm".to_string(), tl!("Pixels/Centimeter"))], 132.0) {
+            f.insert("__resUnit".into(), json!(ru));
+            f.remove("__savedPreset");
+        }
+    });
+    ui.add_space(4.0);
+    small_label(ui, tl!("Color Mode"));
+    ui.horizontal(|ui| {
+        let mut mode = get_s(f, "mode", "rgb");
+        if widgets::dropdown(
+            ui,
+            "nd-mode",
+            &mut mode,
+            &[
+                ("gray".to_string(), tl!("Grayscale")),
+                ("rgb".to_string(), tl!("RGB Color")),
+                ("cmyk".to_string(), tl!("CMYK Color")),
+                ("lab".to_string(), tl!("Lab Color")),
+            ],
+            110.0,
+        ) {
+            f.insert("mode".into(), json!(mode));
+            // A profile for the old mode can't tag the new one.
+            if !profile_fits(&get_s(f, "profile", "working"), &mode) {
+                f.remove("profile");
+            }
+            f.remove("__savedPreset");
+        }
+        let mut depth = f.get("depth").and_then(Value::as_u64).unwrap_or(8);
+        let depth_options: Vec<(u64, &str, &str)> = DEPTH_OPTIONS.iter().map(|(bits, label, tooltip)| (*bits, *label, *tooltip)).collect();
+        if widgets::dropdown_with_tooltips(ui, "nd-depth", &mut depth, &depth_options, 132.0) {
+            f.insert("depth".into(), json!(depth));
+            f.remove("__savedPreset");
+        }
+    });
+    ui.add_space(4.0);
+    small_label(ui, tl!("Background Contents"));
+    // A custom colour is kept as its "#rrggbb", which `file.new` takes as is (#4789).
+    let current = get_s(f, "background", "white");
+    let mut bg = if crate::color_picker_ui::parse_hex(&current).is_some() { CUSTOM.to_string() } else { current.clone() };
+    let opts = [
+        ("white".to_string(), tl!("White")),
+        ("black".to_string(), tl!("Black")),
+        ("backgroundColor".to_string(), tl!("Background Color")),
+        ("transparent".to_string(), tl!("Transparent")),
+        (CUSTOM.to_string(), tl!("Custom…")),
+    ];
+    let shown = background_rgb(app, f);
+    let mut pick = false;
+    ui.horizontal(|ui| {
+        if widgets::dropdown(ui, "nd-bg", &mut bg, &opts, inner - SWATCH - 16.0) {
+            if bg == CUSTOM {
+                // Custom… opens the Color Picker on the colour shown so far.
+                pick = true;
+            } else {
+                f.insert("background".into(), json!(bg));
+            }
+            f.remove("__savedPreset");
+            // A fresh choice of Background Color uses today's toolbox colour. Selecting a
+            // saved preset instead restores the colour captured when it was saved.
+            f.remove("backgroundColor");
+        }
+        // Photoshop's swatch beside the menu: the colour the canvas starts with; a click
+        // opens the Color Picker, as Custom… does.
+        let (r, resp) = ui.allocate_exact_size(vec2(SWATCH, SWATCH), Sense::click());
+        match shown {
+            Some(c) => {
+                ui.painter().rect_filled(
+                    r,
+                    2.0,
+                    egui::Color32::from_rgb((c[0] * 255.0).round() as u8, (c[1] * 255.0).round() as u8, (c[2] * 255.0).round() as u8),
+                );
+            }
+            None => widgets::checker(ui.painter(), r, 4.0),
+        }
+        ui.painter().rect_stroke(r, 2.0, Stroke::new(1.0, Tokens::get(ui.ctx()).field_border), StrokeKind::Inside);
+        let resp = resp.on_hover_text(tl!("Custom background color")).on_hover_cursor(egui::CursorIcon::PointingHand);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Custom background color")));
+        if resp.clicked() {
+            pick = true;
+            f.remove("__savedPreset");
+        }
+    });
+    if pick {
+        let start = shown.unwrap_or([1.0; 3]);
+        f.insert("background".into(), json!(crate::color_picker_ui::hex(start)));
+        f.remove("backgroundColor");
+        crate::color_picker_ui::request_field(f, "background", &crate::color_picker_ui::title_for(tl!("Background Contents")));
+    }
+    ui.add_space(10.0);
+    widgets::hairline(ui);
+    ui.add_space(6.0);
+    advanced_options(app, ui, f, inner);
 }
 
 #[cfg(test)]
@@ -922,6 +1314,8 @@ mod tests {
             background_color: None,
             unit: "px".into(),
             resolution_unit: "in".into(),
+            artboards: false,
+            profile: "working".into(),
         };
         let mut f = Map::new();
         set_clipboard(&mut f, 20, 30);
@@ -1012,7 +1406,7 @@ mod tests {
         use crate::PhotocraftApp;
         use crate::state::{DialogKind, UiState};
         use egui::accesskit::Role;
-        use egui_kittest::{Harness, kittest::Queryable};
+        use egui_kittest::{Harness, kittest::NodeT, kittest::Queryable};
         use std::sync::{Arc, Mutex};
 
         /// The real preference services, backed by an in-memory store shared across app restarts.
@@ -1402,8 +1796,8 @@ mod tests {
             super::super::set_clipboard(&mut f, 640, 360);
             set_fields(&mut h, f);
             // Recent lists the Clipboard card first: three presets instead of two.
-            assert!(h.query_by_label_contains("BLANK DOCUMENT PRESETS (3)").is_some());
-            let heading = h.get_by_label_contains("BLANK DOCUMENT PRESETS").rect();
+            assert!(h.query_by_label_contains("YOUR RECENT ITEMS (3)").is_some());
+            let heading = h.get_by_label_contains("YOUR RECENT ITEMS").rect();
             // Pick the second card, then the first (Clipboard) again.
             click_at(&mut h, heading.left_bottom() + egui::vec2(80.0 + 172.0, 60.0));
             assert_eq!(fields(&h).get("__preset").and_then(|v| v.as_str()), Some("Default PhotoCraft Size"));
@@ -1518,6 +1912,122 @@ mod tests {
             let _ = preset_title_at(&h, "1024 x 768 px @ 72 ppi");
             enter(&mut h);
             assert_eq!(created(&h), (2480, 3508, 300.0));
+        }
+
+        /// The tab row reads Recent, Saved, then the categories, left to right, and says which
+        /// tab is current; the selected card says so too.
+        #[test]
+        fn saved_is_the_second_tab_and_tabs_and_cards_expose_selection() {
+            let mut h = harness();
+            let tabs: Vec<(String, f32)> = ["Recent", "Saved", "Photo", "Print", "Art & Illustration", "Web", "Mobile", "Film & Video"]
+                .iter()
+                .map(|t| (t.to_string(), h.get_by_label(t).rect().left()))
+                .collect();
+            assert!(tabs.windows(2).all(|w| w[0].1 < w[1].1), "{tabs:?}");
+            assert_eq!(h.get_by_label("Recent").accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
+            assert_eq!(h.get_by_label("Saved").accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
+            h.get_by_label("Photo").click();
+            h.run_steps(2);
+            assert_eq!(h.get_by_label("Photo").accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
+            assert_eq!(h.get_by_label("Recent").accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
+            assert_eq!(h.get_by_label("Landscape, 6 x 4").accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
+            h.get_by_label("Landscape, 6 x 4").click();
+            h.run_steps(2);
+            assert_eq!(fields(&h)["__preset"], "Landscape, 6 x 4");
+            assert_eq!(h.get_by_label("Landscape, 6 x 4").accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
+        }
+
+        /// The welcome card is on Recent only, and each tab has its own heading.
+        #[test]
+        fn the_hero_is_on_recent_only_with_a_heading_per_tab() {
+            let mut h = harness();
+            assert!(h.query_by_label("Start a new canvas").is_some());
+            assert!(h.query_by_label_contains("YOUR RECENT ITEMS (").is_some());
+            h.get_by_label("Saved").click();
+            h.run_steps(2);
+            assert!(h.query_by_label("Start a new canvas").is_none());
+            assert!(h.query_by_label("YOUR SAVED PRESETS (0)").is_some());
+            assert!(h.query_by_label("No saved presets yet.").is_some());
+            h.get_by_label("Web").click();
+            h.run_steps(2);
+            assert!(h.query_by_label("Start a new canvas").is_none());
+            assert!(h.query_by_label("BLANK DOCUMENT PRESETS (5)").is_some());
+        }
+
+        /// The selected card is ringed in the palette's outline colour, 2 pt wide.
+        #[test]
+        fn the_selected_card_has_the_outline() {
+            let mut h = harness();
+            h.get_by_label("Web").click();
+            h.run_steps(2);
+            h.get_by_label("Web Minimum").click();
+            h.run_steps(2);
+            let pal = crate::theme::Tokens::for_kind(crate::theme::ThemeKind::ALL[0]).new_doc_palette();
+            let card = h.get_by_label("Web Minimum").rect();
+            fn ring(shape: &egui::Shape, card: egui::Rect, color: egui::Color32) -> bool {
+                match shape {
+                    egui::Shape::Rect(r) => r.rect == card && r.stroke.width == 2.0 && r.stroke.color == color,
+                    egui::Shape::Vec(shapes) => shapes.iter().any(|s| ring(s, card, color)),
+                    _ => false,
+                }
+            }
+            assert!(h.output().shapes.iter().any(|s| ring(&s.shape, card, pal.selected_outline)), "a 2 pt ring around the selected card");
+            // The theme's own tokens are back after the dialog.
+            let after = crate::theme::Tokens::get(&h.ctx);
+            assert_ne!(after, after.for_new_doc());
+        }
+
+        /// Advanced Options starts closed; `__advanced` (or a click) opens it, and its colour profile
+        /// and pixel aspect ratio reach `file.new` and the View menu's command on Create.
+        #[test]
+        fn advanced_options_toggle_and_reach_create() {
+            let mut h = harness();
+            assert!(h.query_by_label("Color Profile").is_none(), "closed by default");
+            let mut f = fields(&h);
+            f.insert("__advanced".into(), serde_json::json!(true));
+            set_fields(&mut h, f);
+            assert!(h.query_by_label("Color Profile").is_some());
+            assert!(h.query_by_label("Pixel Aspect Ratio").is_some());
+            h.get_by_label("Advanced Options").click();
+            h.run_steps(2);
+            assert_eq!(fields(&h)["__advanced"], false);
+            assert!(h.query_by_label("Color Profile").is_none());
+            let mut f = fields(&h);
+            f.extend(serde_json::json!({"profile":"display-p3","__pixelAspect":"hdv1080"}).as_object().unwrap().clone());
+            set_fields(&mut h, f);
+            // A mode the profile can't tag drops it (the Color Mode menu checks this).
+            assert!(super::super::profile_fits("display-p3", "rgb") && !super::super::profile_fits("display-p3", "cmyk"));
+            h.get_by_label("Create").click();
+            h.run_steps(3);
+            let doc = &h.state().session.active().expect("a new document").doc;
+            assert!(doc.icc_profile.is_some(), "tagged with Display P3");
+            assert_eq!(h.state().ui.view.pixel_aspect, "hdv1080");
+        }
+
+        /// The Artboards box sends `"artboards": true` (and nothing when off).
+        #[test]
+        fn the_artboards_checkbox_reaches_file_new() {
+            let mut h = harness();
+            assert!(super::super::command_params(&fields(&h)).get("artboards").is_none());
+            h.get_by_label("Artboards").click();
+            h.run_steps(2);
+            assert_eq!(super::super::command_params(&fields(&h))["artboards"], true);
+            h.get_by_label("Artboards").click();
+            h.run_steps(2);
+            assert!(super::super::command_params(&fields(&h)).get("artboards").is_none());
+            h.get_by_label("Artboards").click();
+            h.run_steps(2);
+            h.get_by_label("Create").click();
+            h.run_steps(3);
+            let doc = &h.state().session.active().expect("a new document").doc;
+            assert_eq!(doc.artboards().len(), 1);
+        }
+
+        /// Close then Create from the left, Create the primary pill in the corner.
+        #[test]
+        fn close_sits_left_of_create() {
+            let h = harness();
+            assert!(h.get_by_label("Close").rect().right() < h.get_by_label("Create").rect().left());
         }
 
         #[test]

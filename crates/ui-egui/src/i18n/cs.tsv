@@ -3752,3 +3752,12 @@ navigator	Zoom	Zvětšení
 	Sent to {printer}	Odesláno do {printer}
 	set in Print Settings…	nastavuje se v nastavení tisku…
 	ICO is limited to 256 × 256 pixels	ICO je omezen na 256 × 256 pixelů
+	YOUR RECENT ITEMS ({n})	VAŠE NEDÁVNÉ POLOŽKY ({n})
+	YOUR SAVED PRESETS ({n})	VAŠE ULOŽENÁ PŘEDNASTAVENÍ ({n})
+	Start a new canvas	Začněte nové plátno
+	Choose a preset below, or set your own size in Preset Details.	Vyberte předvolbu níže, nebo si nastavte vlastní velikost v podrobnostech přednastavení.
+	Advanced Options	Rozšířené možnosti
+	Working space ({profile})	Pracovní prostor ({profile})
+	No color profile (untagged)	Bez barevného profilu (neoznačeno)
+	Delete Preset	Odstranit přednastavení
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	Poměr stran pixelu je nastavení zobrazení: platí pro všechny otevřené dokumenty.

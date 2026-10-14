@@ -4107,3 +4107,12 @@ navigator	Zoom	Zoom
 	Sent to {printer}	Inviato a {printer}
 	set in Print Settings…	impostato nelle impostazioni di stampa…
 	ICO is limited to 256 × 256 pixels	ICO è limitato a 256 × 256 pixel
+	YOUR RECENT ITEMS ({n})	I TUOI ELEMENTI RECENTI ({n})
+	YOUR SAVED PRESETS ({n})	I TUOI PREDEFINITI SALVATI ({n})
+	Start a new canvas	Inizia una nuova tela
+	Choose a preset below, or set your own size in Preset Details.	Scegli un predefinito qui sotto o imposta la tua dimensione nei dettagli del predefinito.
+	Advanced Options	Opzioni avanzate
+	Working space ({profile})	Spazio di lavoro ({profile})
+	No color profile (untagged)	Nessun profilo colore (senza tag)
+	Delete Preset	Elimina predefinito
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	Le proporzioni pixel sono un'impostazione di visualizzazione: valgono per tutti i documenti aperti.

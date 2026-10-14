@@ -3876,3 +3876,12 @@ cameraData	Lens	Lens
 	Ink Characteristics	Mürekkep Özellikleri
 	Solidity:	Doluluk:
 	Redrawing	Yeniden çiziliyor
+	YOUR RECENT ITEMS ({n})	SON ÖĞELERİNİZ ({n})
+	YOUR SAVED PRESETS ({n})	KAYDETTİĞİNİZ ÖN AYARLAR ({n})
+	Start a new canvas	Yeni bir tuval başlatın
+	Choose a preset below, or set your own size in Preset Details.	Aşağıdan bir ön ayar seçin ya da boyutu ön ayar detaylarında kendiniz belirleyin.
+	Advanced Options	Gelişmiş Seçenekler
+	Working space ({profile})	Çalışma alanı ({profile})
+	No color profile (untagged)	Renk profili yok (etiketsiz)
+	Delete Preset	Ön Ayarı Sil
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	Piksel en boy oranı bir görünüm ayarıdır: açık olan tüm belgelere uygulanır.

@@ -145,8 +145,8 @@ Same hub entry as standalone pickers; `color_picker_ui::confirm` branches on ext
 
 ### Chrome and layout
 
-6. **Use `dialog_buttons`** for OK / Cancel / Apply—platform order via `ButtonRole` (macOS default action in the corner).
-7. **Respect width rules** in `dialogs::show` unless `file_ui::dialog_width`, color picker, or kind-specific mins apply (typical 380–440; Layer Style / export / picker up to 600; New Document 800).
+6. **Use `dialog_buttons`** for OK / Cancel / Apply—platform order via `ButtonRole` (macOS default action in the corner). The one exception is New Document, which reads Close, Create from the left on every platform (Create, the primary pill, in the corner).
+7. **Respect width rules** in `dialogs::show` unless `file_ui::dialog_width`, color picker, or kind-specific mins apply (typical 380–440; Layer Style / export / picker up to 600; New Document min(1040, window − 48), at least 760).
 8. **Scroll long bodies** inside the content (`DIALOG_CHROME` for filters); title and button row stay visible.
 9. **Transparent backdrop**—no dimming; previews are judged at true contrast.
 10. **Position:** first open centered; then persist offset (`place_id` per command or kind); title bar drag; clamp on screen.

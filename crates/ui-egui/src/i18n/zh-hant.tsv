@@ -2739,3 +2739,14 @@ curves	Smooth	平滑
 	Sent to {printer}	已傳送至 {printer}
 	set in Print Settings…	在列印設定中設定…
 	ICO is limited to 256 × 256 pixels	ICO 最大為 256 × 256 像素
+	YOUR RECENT ITEMS ({n})	最近的項目 ({n})
+	YOUR SAVED PRESETS ({n})	已儲存的預設集 ({n})
+	Start a new canvas	開始新的畫布
+	Choose a preset below, or set your own size in Preset Details.	請在下方選擇預設集，或在預設集詳細資料中自訂尺寸。
+	Advanced Options	進階選項
+	Working space ({profile})	工作空間 ({profile})
+	No color profile (untagged)	無色彩描述檔（未標記）
+	Delete Preset	刪除預設集
+	Artboards	工作區域
+	Color Profile	色彩描述檔
+	Pixel Aspect Ratio is a view setting: it applies to every open document.	像素外觀比例是檢視設定，會套用到所有開啟的文件。
