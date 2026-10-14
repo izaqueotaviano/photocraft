@@ -875,86 +875,94 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
         .collect();
     let chosen = get_s(f, "__preset", "");
     let gap = 12.0;
-    let well_w = (ui.available_width() - DETAILS_W - gap).max(CARD.x + 24.0);
+    // The dialog's inner width (`dialogs::show` sizes New Document to the window), not
+    // `available_width`: a modal's available width is whatever its content took last frame, so a
+    // well sized from it grew the dialog past the window's edge one frame at a time.
+    let inner_w = (ui.ctx().content_rect().width() - 48.0).clamp(760.0, 1040.0);
+    let well_w = (inner_w - DETAILS_W - gap).max(CARD.x + 24.0);
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
         // Left: the well with the cards.
+        // The frame's ui would lay out left to right like the row it sits in: stack it instead.
         egui::Frame::new().fill(pal.well).corner_radius(t.radius_lg).inner_margin(12).show(ui, |ui| {
-            ui.set_width(well_w - 24.0);
-            ui.set_min_height(3.0 * (CARD.y + CARD_GAP) + 40.0);
-            if cat == "Saved" {
-                create |= saved_presets(app, ui, f, &pal);
-                return;
-            }
-            if cat == CATEGORIES[0].0 {
-                // Our own welcome card on the Recent tab. A fixed-size box with the text laid out
-                // inside it: a wrapping label in a row let the card (and everything below it)
-                // change size from one frame to the next, so clicks landed where it had been.
-                let (hero, _) = ui.allocate_exact_size(vec2(ui.available_width(), 80.0), Sense::hover());
-                ui.painter().rect_filled(hero, t.radius_lg, pal.hero);
-                paint_hero_art(ui.painter(), Rect::from_min_size(hero.min + vec2(12.0, 12.0), vec2(84.0, 56.0)), &pal);
-                let text = Rect::from_min_max(hero.min + vec2(116.0, 14.0), hero.max - vec2(12.0, 8.0));
-                {
-                    // A child that takes no room in the well: the box above already did.
-                    let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(text).layout(egui::Layout::top_down(egui::Align::Min)));
-                    ui.label(RichText::new(tl!("Start a new canvas")).font(crate::theme::semibold(17.0)).color(pal.text));
-                    ui.add(
-                        egui::Label::new(RichText::new(tl!("Choose a preset below, or set your own size in Preset Details.")).color(pal.section)).truncate(),
-                    );
+            ui.vertical(|ui| {
+                ui.set_width(well_w - 24.0);
+                ui.set_min_height(3.0 * (CARD.y + CARD_GAP) + 40.0);
+                if cat == "Saved" {
+                    create |= saved_presets(app, ui, f, &pal);
+                    return;
                 }
-                ui.add_space(12.0);
-            }
-            let title = if cat == CATEGORIES[0].0 { tl!("YOUR RECENT ITEMS ({n})") } else { tl!("BLANK DOCUMENT PRESETS ({n})") };
-            heading(ui, &pal, &crate::i18n::fmt(title, &[("n", &presets.len().to_string())]));
-            let cols = columns(ui.available_width());
-            // Up to 20 recent documents: scroll past three rows rather than grow the dialog.
-            egui::ScrollArea::vertical().id_salt("new-document-presets").max_height(3.0 * (CARD.y + CARD_GAP)).show(ui, |ui| {
-                for row in presets.chunks(cols) {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = CARD_GAP;
-                        for c in row {
-                            let (w, h, _) = c.size(&units);
-                            let on = match c {
-                                Card::Builtin(p) => chosen == p.0,
-                                Card::Recent(settings) => holds(f, settings),
-                            };
-                            let glyph = match c {
-                                Card::Builtin(p) => Glyph::of_preset(p),
-                                Card::Recent(s) => CATEGORIES
-                                    .iter()
-                                    .flat_map(|c| c.1.iter())
-                                    .find(|p| (p.1, p.2, p.3) == (s.width, s.height, s.resolution))
-                                    .map_or(Glyph::Plain, Glyph::of_preset),
-                            };
-                            let size = c.size_line(&units, f);
-                            let (resp, elided) = card(ui, &pal, &CardView { w, h, glyph, title: tl!(c.title()), size: &size, on });
-                            let resp = match c {
-                                // A recent document's tooltip names everything it restores.
-                                Card::Recent(s) => {
-                                    let background = match s.background.as_str() {
-                                        "white" => tl!("White"),
-                                        "black" => tl!("Black"),
-                                        "transparent" => tl!("Transparent"),
-                                        "backgroundColor" => tl!("Background Color"),
-                                        hex => hex,
-                                    };
-                                    resp.on_hover_text(format!("{} · {size} · {}/{} · {background}", tl!(c.title()), s.mode.to_uppercase(), s.depth))
+                if cat == CATEGORIES[0].0 {
+                    // Our own welcome card on the Recent tab. A fixed-size box with the text laid out
+                    // inside it: a wrapping label in a row let the card (and everything below it)
+                    // change size from one frame to the next, so clicks landed where it had been.
+                    let (hero, _) = ui.allocate_exact_size(vec2(ui.available_width(), 80.0), Sense::hover());
+                    ui.painter().rect_filled(hero, t.radius_lg, pal.hero);
+                    paint_hero_art(ui.painter(), Rect::from_min_size(hero.min + vec2(12.0, 12.0), vec2(84.0, 56.0)), &pal);
+                    let text = Rect::from_min_max(hero.min + vec2(116.0, 14.0), hero.max - vec2(12.0, 8.0));
+                    {
+                        // A child that takes no room in the well: the box above already did.
+                        let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(text).layout(egui::Layout::top_down(egui::Align::Min)));
+                        ui.label(RichText::new(tl!("Start a new canvas")).font(crate::theme::semibold(17.0)).color(pal.text));
+                        ui.add(
+                            egui::Label::new(RichText::new(tl!("Choose a preset below, or set your own size in Preset Details.")).color(pal.section))
+                                .truncate(),
+                        );
+                    }
+                    ui.add_space(12.0);
+                }
+                let title = if cat == CATEGORIES[0].0 { tl!("YOUR RECENT ITEMS ({n})") } else { tl!("BLANK DOCUMENT PRESETS ({n})") };
+                heading(ui, &pal, &crate::i18n::fmt(title, &[("n", &presets.len().to_string())]));
+                let cols = columns(ui.available_width());
+                // Up to 20 recent documents: scroll past three rows rather than grow the dialog.
+                egui::ScrollArea::vertical().id_salt("new-document-presets").max_height(3.0 * (CARD.y + CARD_GAP)).show(ui, |ui| {
+                    for row in presets.chunks(cols) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = CARD_GAP;
+                            for c in row {
+                                let (w, h, _) = c.size(&units);
+                                let on = match c {
+                                    Card::Builtin(p) => chosen == p.0,
+                                    Card::Recent(settings) => holds(f, settings),
+                                };
+                                let glyph = match c {
+                                    Card::Builtin(p) => Glyph::of_preset(p),
+                                    Card::Recent(s) => CATEGORIES
+                                        .iter()
+                                        .flat_map(|c| c.1.iter())
+                                        .find(|p| (p.1, p.2, p.3) == (s.width, s.height, s.resolution))
+                                        .map_or(Glyph::Plain, Glyph::of_preset),
+                                };
+                                let size = c.size_line(&units, f);
+                                let (resp, elided) = card(ui, &pal, &CardView { w, h, glyph, title: tl!(c.title()), size: &size, on });
+                                let resp = match c {
+                                    // A recent document's tooltip names everything it restores.
+                                    Card::Recent(s) => {
+                                        let background = match s.background.as_str() {
+                                            "white" => tl!("White"),
+                                            "black" => tl!("Black"),
+                                            "transparent" => tl!("Transparent"),
+                                            "backgroundColor" => tl!("Background Color"),
+                                            hex => hex,
+                                        };
+                                        resp.on_hover_text(format!("{} · {size} · {}/{} · {background}", tl!(c.title()), s.mode.to_uppercase(), s.depth))
+                                    }
+                                    Card::Builtin(_) if elided => resp.on_hover_text(tl!(c.title())),
+                                    Card::Builtin(_) => resp,
+                                };
+                                if resp.clicked() {
+                                    match c {
+                                        Card::Builtin(p) => apply_preset(f, p, &units),
+                                        Card::Recent(settings) => apply_settings(f, settings),
+                                    }
+                                    create |= resp.double_clicked() || resp.triple_clicked();
                                 }
-                                Card::Builtin(_) if elided => resp.on_hover_text(tl!(c.title())),
-                                Card::Builtin(_) => resp,
-                            };
-                            if resp.clicked() {
-                                match c {
-                                    Card::Builtin(p) => apply_preset(f, p, &units),
-                                    Card::Recent(settings) => apply_settings(f, settings),
-                                }
-                                create |= resp.double_clicked() || resp.triple_clicked();
                             }
-                        }
-                    });
-                    ui.add_space(CARD_GAP);
-                }
-            });
+                        });
+                        ui.add_space(CARD_GAP);
+                    }
+                });
+            })
         });
         // Right: Preset Details.
         egui::Frame::new().fill(pal.details).corner_radius(t.radius_lg).inner_margin(14).show(ui, |ui| {
