@@ -887,22 +887,21 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
                 return;
             }
             if cat == CATEGORIES[0].0 {
-                // Our own welcome card on the Recent tab.
-                egui::Frame::new().fill(pal.hero).corner_radius(t.radius_lg).inner_margin(12).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        let (r, _) = ui.allocate_exact_size(vec2(84.0, 56.0), Sense::hover());
-                        paint_hero_art(ui.painter(), r, &pal);
-                        ui.add_space(8.0);
-                        ui.vertical(|ui| {
-                            ui.label(RichText::new(tl!("Start a new canvas")).font(crate::theme::semibold(17.0)).color(pal.text));
-                            ui.add(
-                                egui::Label::new(RichText::new(tl!("Choose a preset below, or set your own size in Preset Details.")).color(pal.section))
-                                    .wrap(),
-                            );
-                        });
-                    });
-                });
+                // Our own welcome card on the Recent tab. A fixed-size box with the text laid out
+                // inside it: a wrapping label in a row let the card (and everything below it)
+                // change size from one frame to the next, so clicks landed where it had been.
+                let (hero, _) = ui.allocate_exact_size(vec2(ui.available_width(), 80.0), Sense::hover());
+                ui.painter().rect_filled(hero, t.radius_lg, pal.hero);
+                paint_hero_art(ui.painter(), Rect::from_min_size(hero.min + vec2(12.0, 12.0), vec2(84.0, 56.0)), &pal);
+                let text = Rect::from_min_max(hero.min + vec2(116.0, 14.0), hero.max - vec2(12.0, 8.0));
+                {
+                    // A child that takes no room in the well: the box above already did.
+                    let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(text).layout(egui::Layout::top_down(egui::Align::Min)));
+                    ui.label(RichText::new(tl!("Start a new canvas")).font(crate::theme::semibold(17.0)).color(pal.text));
+                    ui.add(
+                        egui::Label::new(RichText::new(tl!("Choose a preset below, or set your own size in Preset Details.")).color(pal.section)).truncate(),
+                    );
+                }
                 ui.add_space(12.0);
             }
             let title = if cat == CATEGORIES[0].0 { tl!("YOUR RECENT ITEMS ({n})") } else { tl!("BLANK DOCUMENT PRESETS ({n})") };
