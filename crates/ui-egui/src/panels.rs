@@ -1603,7 +1603,7 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     egui::Panel::bottom("status_bar")
         .exact_size(status_bar_heights(&t).0)
-        .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0)))
+        .frame(egui::Frame::NONE.fill(t.status_bar).inner_margin(egui::Margin::symmetric(10, 0)))
         .show(ui, |ui| {
             let control_h = status_bar_heights(&t).1;
             // Read from the right in a right-to-left UI, with the trailing group at the left.

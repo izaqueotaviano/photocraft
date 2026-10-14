@@ -5,7 +5,7 @@
 | Theme | Intent |
 |---|---|
 | Pro | Photoshop-style Spectrum dark: flat charcoal panels (#323232), dark tab strips, Spectrum blue accent (#378ef0), pill buttons, checkboxes, compact 12 px type |
-| Pro Medium | Photoshop-style medium-gray panels and a dark canvas |
+| Pro Medium | The default: the Pro layout in medium grey, in the reference palette the user supplied: #535353 title, options and tool bars, #4d4d4d panels, #424242 panel tab rows and document tab strip, #474747 rulers, #4b4b4b status bar, #6b6b6b selected row, #282828 pasteboard, #2680eb accent, #1273e6 primary buttons with white labels, and a #1e1e1e Home screen with #2c2c2c recent-file cards (`status_bar`, `ruler`, `home_bg` and `home_card` tokens; the other themes keep the chrome colour and the pasteboard there). Text and fields keep their earlier, higher-contrast values |
 | Studio | Dark studio style: near-black, rounded cards, pill tabs, violet accent, toggles |
 | Studio Light | Studio on light surfaces |
 | Classic | Windows-2000 bevels, square corners, navy selection |

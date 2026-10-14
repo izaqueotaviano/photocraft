@@ -332,7 +332,7 @@ pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &
     let left = Rect::from_min_max(pos2(full.left(), full.top() + RULER), pos2(full.left() + RULER, full.bottom()));
     let corner = Rect::from_min_size(full.min, vec2(RULER, RULER));
     let p = ui.painter_at(full);
-    let bg = t.chrome;
+    let bg = t.ruler;
     for r in [top, left, corner] {
         p.rect_filled(r, 0.0, bg);
     }
@@ -510,6 +510,37 @@ mod tests {
         for tick in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             assert_eq!(snap_px_to_tick(47.5, 3.0, tick), 47.5);
         }
+    }
+
+    /// The rulers are filled with the theme's ruler colour: a step darker than the chrome in the
+    /// default brightness (#474747 in the user's reference palette), the chrome colour elsewhere.
+    #[test]
+    fn rulers_are_filled_with_their_theme_colour() {
+        for kind in crate::theme::ThemeKind::ALL {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.run("file.new", json!({"width": 256, "height": 128})).unwrap();
+            let (mut h, full, _) = ruler_harness(app);
+            PhotocraftApp::setup_context(&h.ctx, kind);
+            h.run_steps(2);
+            let t = Tokens::for_kind(kind);
+            let filled: Vec<Rect> = h
+                .output()
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Rect(r) if r.fill == t.ruler => Some(r.rect),
+                    _ => None,
+                })
+                .collect();
+            let top = Rect::from_min_max(pos2(full.left() + RULER, full.top()), pos2(full.right(), full.top() + RULER));
+            let left = Rect::from_min_max(pos2(full.left(), full.top() + RULER), pos2(full.left() + RULER, full.bottom()));
+            let corner = Rect::from_min_size(full.min, vec2(RULER, RULER));
+            for strip in [top, left, corner] {
+                assert!(filled.contains(&strip), "{kind:?}: {strip:?} not filled with {:?}: {filled:?}", t.ruler);
+            }
+        }
+        let m = Tokens::for_kind(crate::theme::ThemeKind::ProMedium);
+        assert_ne!(m.ruler, m.chrome, "the default brightness has its own ruler colour");
     }
 
     /// Rulers alone in a 400×300 frame at 100 %, centred on a 256×128 document.

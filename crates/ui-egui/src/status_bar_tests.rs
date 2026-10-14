@@ -62,6 +62,27 @@ fn status_bar_controls_sit_inside_the_bar_with_even_margins() {
     }
 }
 
+/// The bar is filled with the theme's status-bar colour: a step darker than the chrome in the
+/// default brightness (#4b4b4b in the user's reference palette), the chrome colour elsewhere.
+#[test]
+fn status_bar_is_filled_with_its_theme_colour() {
+    for kind in ThemeKind::ALL {
+        let h = harness(kind);
+        let t = Tokens::for_kind(kind);
+        let bar_h = crate::panels::status_bar_heights(&t).0;
+        let bottom = h.ctx.data(|d| d.get_temp::<f32>(bottom_id())).unwrap();
+        let bar = h.output().shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if (r.rect.height() - bar_h).abs() < 1.0 && (r.rect.bottom() - bottom).abs() < 1.0 && r.rect.width() > SIZE.x / 2.0 => {
+                Some(r.fill)
+            }
+            _ => None,
+        });
+        assert_eq!(bar, Some(t.status_bar), "{kind:?}: the bar's fill");
+    }
+    let m = Tokens::for_kind(ThemeKind::ProMedium);
+    assert_ne!(m.status_bar, m.chrome, "the default brightness has its own status bar colour");
+}
+
 fn cursor_warp(h: &Harness<'_, PhotocraftApp>) -> Option<egui::Pos2> {
     h.output().viewport_output.values().flat_map(|v| &v.commands).find_map(|c| match c {
         egui::ViewportCommand::CursorPosition(p) => Some(*p),

@@ -2018,6 +2018,8 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // takes input, a click elsewhere activates that document.
     if let Some(shown) = arranged_cells(app, rect) {
         let t = crate::theme::Tokens::get(ui.ctx());
+        // The other documents' outlines sit on the pasteboard, where a black one can vanish.
+        let others = crate::theme::Tokens::pasteboard_line(crate::crop_shield::canvas_color(app, ui.ctx()), Color32::from_black_alpha(160));
         for (d, cell) in shown {
             let cell = cell.shrink(1.0);
             let view = app.ui.views[d].clone();
@@ -2028,7 +2030,7 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     app.session.set_active(d);
                 }
             }
-            let stroke = if d == idx { Stroke::new(1.5, t.accent) } else { Stroke::new(1.0, Color32::from_black_alpha(160)) };
+            let stroke = if d == idx { Stroke::new(1.5, t.accent) } else { Stroke::new(1.0, others) };
             ui.painter().rect_stroke(cell, 0, stroke, egui::StrokeKind::Inside);
         }
         return;
@@ -2629,7 +2631,12 @@ pub fn mode_label(doc: &Document) -> &'static str {
 fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::get(ui.ctx());
     let area = ui.available_rect_before_wrap();
-    paint_dots(ui, area, app.session.prefs().interface.show_canvas_dots);
+    // The default brightness has its own darker Home backdrop; other themes show the pasteboard.
+    if t.home_bg.a() > 0 {
+        ui.painter().rect_filled(area, 0.0, t.home_bg);
+    } else {
+        paint_dots(ui, area, app.session.prefs().interface.show_canvas_dots);
+    }
     // File › Open Recent, newest first (on the web there are no paths to reopen).
     let recent: Vec<String> = if cfg!(target_arch = "wasm32") { Vec::new() } else { app.ui.recent_files.iter().take(HOME_RECENT).cloned().collect() };
     let recent_h = if recent.is_empty() { 0.0 } else { 34.0 + recent.len() as f32 * HOME_RECENT_ROW };
@@ -2718,8 +2725,11 @@ fn home_recent(app: &mut PhotocraftApp, ui: &mut egui::Ui, recent: &[String]) {
         let (row, resp) = ui.allocate_exact_size(egui::vec2(width, HOME_RECENT_ROW), Sense::click());
         // The × sits on top of the row, so the row counts as hovered while the pointer is on it.
         let hovered = ui.rect_contains_pointer(row);
-        if hovered {
-            ui.painter().rect_filled(row, t.radius_sm, t.hover);
+        // Each file is a card where the theme has Home cards (the default brightness); elsewhere
+        // only the hovered row is filled.
+        let fill = if hovered { t.home_card_hovered() } else { t.home_card };
+        if fill.a() > 0 {
+            ui.painter().rect_filled(row, t.radius_sm, fill);
         }
         let close = Rect::from_center_size(egui::pos2(row.right() - 16.0, row.center().y), egui::vec2(22.0, 22.0));
         let right = if hovered { close.left() - 4.0 } else { row.right() - 10.0 };
@@ -3673,7 +3683,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // The canvas edge isn't outlined while the pixels past it show (Photoshop's crop preview),
         // nor while the Crop tool hides everything outside its box (Show Cropped Area off).
         if border == photocraft_engine::prefs::CanvasBorder::Line && !beyond && !crate::crop_shield::hides_outside(app) {
-            painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, Color32::from_gray(20)), egui::StrokeKind::Outside);
+            // Dark on a light pasteboard, light where a dark line would vanish (the default #282828).
+            let line = crate::theme::Tokens::pasteboard_line(crate::crop_shield::canvas_color(app, &ctx), Color32::from_gray(20));
+            painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, line), egui::StrokeKind::Outside);
         }
         crate::type_tool::draw_overlay(app, &painter, &xf);
         crate::transform_tool::draw_overlay(app, &painter, &xf);
@@ -6599,6 +6611,64 @@ mod tests {
         h.run_steps(2);
         assert!(listed(&h).is_empty());
         assert!(h.state().0.session.documents().is_empty());
+    }
+
+    /// The default brightness gives the Home screen its own dark backdrop and shows each recent
+    /// file as a card, a step lighter while hovered (the user's reference palette). The other
+    /// themes keep the pasteboard behind it and fill only the hovered row, as before.
+    #[test]
+    fn home_screen_backdrop_and_recent_cards_follow_the_theme() {
+        use crate::theme::{ThemeKind, Tokens};
+        use egui_kittest::kittest::Queryable;
+        type H<'a> = egui_kittest::Harness<'a, (PhotocraftApp, bool)>;
+        let filled = |h: &H<'_>, keep: &dyn Fn(Rect) -> bool| -> Vec<Color32> {
+            h.output()
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Rect(r) if r.fill.a() > 0 && keep(r.rect) => Some(r.fill),
+                    _ => None,
+                })
+                .collect()
+        };
+        let card = |r: Rect| (r.size() - vec2(380.0, HOME_RECENT_ROW)).length() < 0.5;
+        for kind in [ThemeKind::ProMedium, ThemeKind::Pro, ThemeKind::ProLight] {
+            let t = Tokens::for_kind(kind);
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            for name in ["c.tif", "b.psd", "a.png"] {
+                app.push_recent(&format!("/tmp/photocraft-home-cards/{name}"));
+            }
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(900.0, 760.0)).build_ui_state(
+                |ui, (app, ready): &mut (PhotocraftApp, bool)| {
+                    if *ready {
+                        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| document_area(app, ui));
+                    }
+                },
+                (app, false),
+            );
+            PhotocraftApp::setup_context(&h.ctx, kind);
+            h.state_mut().1 = true;
+            h.run_steps(3);
+            // Large opaque fills other than the harness's own chrome-coloured frame.
+            let backdrop = filled(&h, &|r: Rect| r.width() > 800.0 && r.height() > 600.0);
+            let backdrop: Vec<Color32> = backdrop.into_iter().filter(|c| *c != t.chrome).collect();
+            if kind == ThemeKind::ProMedium {
+                assert_eq!(backdrop, [t.home_bg], "{kind:?}: the Home backdrop");
+                assert_eq!(filled(&h, &card), [t.home_card; 3], "{kind:?}: one card per recent file");
+            } else {
+                assert!(backdrop.is_empty(), "{kind:?}: the pasteboard shows behind Home: {backdrop:?}");
+                assert!(filled(&h, &card).is_empty(), "{kind:?}: no cards");
+            }
+            h.get_by_label("b.psd").hover();
+            h.run_steps(2);
+            let mut cards = filled(&h, &card);
+            if kind == ThemeKind::ProMedium {
+                cards.sort_by_key(|c| c.r());
+                assert_eq!(cards, [t.home_card, t.home_card, t.home_card_hovered()], "{kind:?}: the hovered card is lighter");
+            } else {
+                assert_eq!(cards, [t.hover], "{kind:?}: only the hovered row is filled");
+            }
+        }
     }
 
     #[test]

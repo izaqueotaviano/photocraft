@@ -13,6 +13,9 @@
 //!   (blue-grey surfaces, Breeze blue accent, 5 px corners), so the app sits with the rest of a
 //!   Plasma desktop.
 //!
+//! - **Pro (Medium Gray)**, the default: #535353 bars, #4d4d4d panels, a #282828 pasteboard, a
+//!   #2680eb accent and #1273e6 primary buttons, following the reference palette the user
+//!   supplied (measured from their screenshots).
 //! - **Pro (Light Gray)** and **Pro (Light)**: Photoshop's third and fourth interface brightness
 //!   levels (#B8B8B8 and #F0F0F0 panels) with the Pro layout (#2661).
 //!
@@ -27,7 +30,8 @@ use std::sync::Arc;
 pub enum ThemeKind {
     /// Photoshop-style Spectrum dark: flat charcoal panels, tab strips, blue accents (darkest brightness).
     Pro,
-    /// Photoshop's default (second) interface brightness: #535353 panels, #282828 canvas (default).
+    /// Photoshop's default (second) interface brightness: #535353 bars, #4d4d4d panels, #282828
+    /// canvas, in the reference palette the user supplied (default).
     #[default]
     ProMedium,
     /// Photoshop's third interface brightness: #B8B8B8 panels (#2661).
@@ -194,6 +198,16 @@ pub struct Tokens {
     pub caption_close_text: Color32,
     /// Dims the main window behind a modal that takes all input (Camera Raw).
     pub scrim: Color32,
+    /// Status bar background (the chrome colour, or a step darker in the default brightness).
+    pub status_bar: Color32,
+    /// Ruler background (the chrome colour, or a step darker in the default brightness).
+    pub ruler: Color32,
+    /// Home screen backdrop, painted over the pasteboard. Transparent (most themes) shows the
+    /// pasteboard and its dots, as before.
+    pub home_bg: Color32,
+    /// Home screen cards (the recent files). Transparent (most themes) draws no card, only the
+    /// hover fill.
+    pub home_card: Color32,
 }
 
 impl Tokens {
@@ -204,12 +218,18 @@ impl Tokens {
 
     pub fn for_kind(kind: ThemeKind) -> Self {
         match kind {
-            // Sampled from Photoshop 2026's default brightness (raw display values).
+            // The default (second) brightness. The surface, accent and button colours follow the
+            // reference palette the user supplied (measured from screenshots): #535353 title,
+            // options and tool bars, #4d4d4d panels, #424242 panel tab rows and document tab
+            // strip, #474747 rulers, #4b4b4b status bar, #6b6b6b selected row, the #282828
+            // pasteboard (from Pro), a #2680eb accent, #1273e6 primary buttons with white labels,
+            // and a #1e1e1e Home screen with #2c2c2c cards. Text, fields, hover and pressed keep
+            // their earlier values so text holds its contrast (checked by the tests).
             ThemeKind::ProMedium => Tokens {
                 kind,
                 chrome: Color32::from_rgb(83, 83, 83),
                 dock: Color32::from_rgb(66, 66, 66),
-                card: Color32::from_rgb(83, 83, 83),
+                card: Color32::from_rgb(77, 77, 77),
                 card_border: Color32::from_rgb(66, 66, 66),
                 field: Color32::from_rgb(69, 69, 69),
                 field_border: Color32::from_rgb(104, 104, 104),
@@ -219,10 +239,17 @@ impl Tokens {
                 text_dim: Color32::from_rgb(212, 212, 212),
                 text_faint: Color32::from_rgb(160, 160, 160),
                 icon: Color32::from_rgb(226, 226, 226),
+                accent: Color32::from_rgb(38, 128, 235),
                 accent_soft: Color32::from_rgb(110, 110, 110),
+                accent_border: Color32::from_rgb(38, 128, 235),
                 separator: Color32::from_rgb(62, 62, 62),
-                tab_strip: Color32::from_rgb(74, 74, 74),
+                primary_bg: Color32::from_rgb(18, 115, 230),
+                tab_strip: Color32::from_rgb(66, 66, 66),
                 row_selected: Color32::from_rgb(107, 107, 107),
+                status_bar: Color32::from_rgb(75, 75, 75),
+                ruler: Color32::from_rgb(71, 71, 71),
+                home_bg: Color32::from_rgb(30, 30, 30),
+                home_card: Color32::from_rgb(44, 44, 44),
                 ..Tokens::for_kind(ThemeKind::Pro)
             },
             // Photoshop's medium-light brightness: #B8B8B8 panels, dark text, a mid-grey canvas.
@@ -248,6 +275,8 @@ impl Tokens {
                 shadow: Color32::from_black_alpha(70),
                 tab_strip: Color32::from_rgb(170, 170, 170),
                 row_selected: Color32::from_rgb(212, 212, 212),
+                status_bar: Color32::from_rgb(184, 184, 184),
+                ruler: Color32::from_rgb(184, 184, 184),
                 ..Tokens::for_kind(ThemeKind::Pro)
             },
             // Photoshop's lightest brightness: #F0F0F0 panels, dark text, a light-grey canvas.
@@ -273,6 +302,8 @@ impl Tokens {
                 shadow: Color32::from_black_alpha(50),
                 tab_strip: Color32::from_rgb(226, 226, 226),
                 row_selected: Color32::from_rgb(204, 204, 204),
+                status_bar: Color32::from_rgb(240, 240, 240),
+                ruler: Color32::from_rgb(240, 240, 240),
                 ..Tokens::for_kind(ThemeKind::Pro)
             },
             ThemeKind::Pro => Tokens {
@@ -314,6 +345,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                status_bar: Color32::from_rgb(50, 50, 50),
+                ruler: Color32::from_rgb(50, 50, 50),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             ThemeKind::Studio => Tokens {
                 kind,
@@ -354,6 +389,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                status_bar: Color32::from_rgb(20, 20, 21),
+                ruler: Color32::from_rgb(20, 20, 21),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             ThemeKind::StudioLight => Tokens {
                 kind,
@@ -394,6 +433,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                status_bar: Color32::from_rgb(246, 246, 248),
+                ruler: Color32::from_rgb(246, 246, 248),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             ThemeKind::Classic => Tokens {
                 kind,
@@ -434,6 +477,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                status_bar: Color32::from_rgb(212, 208, 200),
+                ruler: Color32::from_rgb(212, 208, 200),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             // libadwaita's named colours (window, sidebar, card, view, accent, destructive) and
             // radii (6 px buttons, 12 px cards), mapped onto the Studio layout. GNOME's close
@@ -477,6 +524,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(212, 212, 216),
                 caption_close_text: Color32::from_rgb(50, 50, 54),
                 scrim: Color32::from_black_alpha(110),
+                status_bar: Color32::WHITE,
+                ruler: Color32::WHITE,
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             ThemeKind::AdwaitaDark => Tokens {
                 kind,
@@ -517,6 +568,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(72, 72, 76),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                status_bar: Color32::from_rgb(46, 46, 50),
+                ruler: Color32::from_rgb(46, 46, 50),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             // The light counterpart, adapted the same way: our own values, chosen a few levels
             // from Breeze Light's surfaces so the app blends into a Plasma desktop without being a
@@ -563,6 +618,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(213, 51, 60),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                status_bar: Color32::from_rgb(219, 222, 226),
+                ruler: Color32::from_rgb(219, 222, 226),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             // An adaptation of KDE Plasma's Breeze Dark look on the Studio layout, not a copy: our
             // own values, chosen a few levels from Breeze Dark's surfaces (the darkest canvas, then
@@ -613,6 +672,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(213, 51, 60),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                status_bar: Color32::from_rgb(38, 42, 48),
+                ruler: Color32::from_rgb(38, 42, 48),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             // Soft Dark: our own low-contrast palette on the Studio layout. Muted violet-grey
             // surfaces (never near-black), softened off-white text and a periwinkle accent; the
@@ -656,6 +719,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(200, 72, 86),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(100),
+                status_bar: Color32::from_rgb(58, 58, 68),
+                ruler: Color32::from_rgb(58, 58, 68),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             // Soft Light: pale violet-grey surfaces, softened dark-violet text (not black) and a
             // periwinkle accent, with the same generous radii as Soft Dark.
@@ -698,6 +765,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(200, 60, 72),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(90),
+                status_bar: Color32::from_rgb(232, 230, 236),
+                ruler: Color32::from_rgb(232, 230, 236),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
             // Ethan Schoonover's Solarized Dark palette: base03 canvas, base02 surfaces, base0
             // body text and the Solarized blue accent. https://ethanschoonover.com/solarized/
@@ -741,6 +812,10 @@ impl Tokens {
                 caption_close: Color32::from_rgb(220, 50, 47),
                 caption_close_text: Color32::from_rgb(253, 246, 227),
                 scrim: Color32::from_black_alpha(110),
+                status_bar: Color32::from_rgb(7, 54, 66),
+                ruler: Color32::from_rgb(7, 54, 66),
+                home_bg: Color32::TRANSPARENT,
+                home_card: Color32::TRANSPARENT,
             },
         }
     }
@@ -806,6 +881,21 @@ impl Tokens {
     /// and slider trails, which must keep the theme's.
     pub fn field_selection(&self) -> Color32 {
         if self.pro { Color32::from_gray(if self.dark() { 96 } else { 201 }) } else { self.accent_soft }
+    }
+
+    /// A hovered Home-screen card: a step lighter than the card, or the plain hover fill where
+    /// the theme draws no cards.
+    pub fn home_card_hovered(&self) -> Color32 {
+        if self.home_card.a() == 0 { self.hover } else { self.home_card.lerp_to_gamma(self.hover, 0.3) }
+    }
+
+    /// A line drawn straight on the pasteboard (an artboard's frame, the canvas border line, the
+    /// outline of an arranged document): `dark` where that shows, else a light hairline, since a
+    /// black line vanishes on a dark pasteboard such as the default #282828.
+    pub fn pasteboard_line(pasteboard: Color32, dark: Color32) -> Color32 {
+        let light = Color32::from_white_alpha(64);
+        let shows = |line: Color32| contrast_ratio(pasteboard.blend(line), pasteboard);
+        if shows(light) > shows(dark) { light } else { dark }
     }
 
     pub fn dark(&self) -> bool {
@@ -1067,6 +1157,17 @@ pub fn canvas_bg(t: &Tokens) -> Color32 {
     t.canvas
 }
 
+/// WCAG 2 contrast ratio between two opaque colours (1 to 21); the palettes' tests hold text to it.
+pub fn contrast_ratio(a: Color32, b: Color32) -> f32 {
+    let lin = |v: u8| {
+        let c = f32::from(v) / 255.0;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    let lum = |c: Color32| 0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b());
+    let (hi, lo) = if lum(a) > lum(b) { (lum(a), lum(b)) } else { (lum(b), lum(a)) };
+    (hi + 0.05) / (lo + 0.05)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1171,7 +1272,9 @@ mod tests {
             assert_eq!(ThemeKind::from_name(label), Some(kind));
             assert!(ThemeKind::ALL.contains(&kind));
             // Text stays readable (WCAG AA for body text, 3:1 for dim and faint labels and icons).
-            for bg in [t.card, t.chrome, t.dock, t.field, t.hover, t.row_selected, t.tab_strip] {
+            // The light levels keep their status bar and rulers in the chrome colour.
+            assert_eq!((t.status_bar, t.ruler), (t.chrome, t.chrome), "{kind:?}");
+            for bg in [t.card, t.chrome, t.dock, t.field, t.hover, t.row_selected, t.tab_strip, t.status_bar, t.ruler] {
                 assert!(contrast(t.text, bg) >= 4.5, "{kind:?} text on {bg:?}: {}", contrast(t.text, bg));
                 assert!(contrast(t.icon, bg) >= 3.0, "{kind:?} icon on {bg:?}");
                 assert!(contrast(t.text_dim, bg) >= 3.0, "{kind:?} dim text on {bg:?}");
@@ -1198,6 +1301,90 @@ mod tests {
     }
 
     #[test]
+    fn default_brightness_follows_the_user_palette_and_keeps_text_readable() {
+        assert_eq!(ThemeKind::default(), ThemeKind::ProMedium);
+        let t = Tokens::for_kind(ThemeKind::ProMedium);
+        let rgb = |hex: u32| Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+        // The reference palette the user supplied (measured from their screenshots).
+        assert_eq!(t.chrome, rgb(0x535353), "title, options and tool bars");
+        assert_eq!(t.card, rgb(0x4d4d4d), "panels");
+        assert_eq!(t.tab_strip, rgb(0x424242), "panel tab rows and the document tab strip");
+        assert_eq!(t.canvas, rgb(0x282828), "pasteboard");
+        assert_eq!(t.ruler, rgb(0x474747), "rulers");
+        assert_eq!(t.status_bar, rgb(0x4b4b4b), "status bar");
+        assert_eq!(t.row_selected, rgb(0x6b6b6b), "selected layer row");
+        assert_eq!((t.accent, t.accent_border), (rgb(0x2680eb), rgb(0x2680eb)), "accent");
+        assert_eq!((t.primary_bg, t.primary_text), (rgb(0x1273e6), Color32::WHITE), "primary button");
+        assert_eq!((t.home_bg, t.home_card), (rgb(0x1e1e1e), rgb(0x2c2c2c)), "Home screen");
+        // Fields and text keep their earlier values: fields are not lightened, dim text not darkened.
+        assert_eq!((t.field, t.text, t.text_dim, t.text_faint), (rgb(0x454545), rgb(0xeeeeee), rgb(0xd4d4d4), rgb(0xa0a0a0)));
+        // White on a primary button holds 4.5:1, also while hovered and pressed (button_impl
+        // darkens the fill), on every surface the button sits on.
+        for surface in [t.chrome, t.card, t.dock, t.home_bg] {
+            for k in [1.0, 0.9, 0.8] {
+                let fill = surface.blend(t.primary_bg.gamma_multiply(k));
+                assert!(contrast(t.primary_text, fill) >= 4.5, "primary label at {k} on {surface:?}: {}", contrast(t.primary_text, fill));
+            }
+        }
+        // Body text holds 4.5:1 on panels, bars, fields, hovered and selected rows and the Home
+        // screen; dim text on every resting surface.
+        let resting = [t.chrome, t.card, t.dock, t.tab_strip, t.field, t.status_bar, t.ruler, t.home_bg, t.home_card];
+        for bg in resting.into_iter().chain([t.hover, t.row_selected, t.home_card_hovered()]) {
+            assert!(contrast(t.text, bg) >= 4.5, "text on {bg:?}: {}", contrast(t.text, bg));
+        }
+        for bg in resting {
+            assert!(contrast(t.text_dim, bg) >= 4.5, "dim text on {bg:?}: {}", contrast(t.text_dim, bg));
+        }
+        // Faint labels (ruler numbers, inactive tabs, status text) read at least as well as they
+        // did on the old #535353 panels, tab strips, status bar and rulers.
+        let before = contrast(t.text_faint, rgb(0x535353));
+        for bg in [t.card, t.tab_strip, t.status_bar, t.ruler, t.home_card] {
+            assert!(contrast(t.text_faint, bg) >= before, "faint text on {bg:?}");
+        }
+        // A hovered row stays distinct from the selected row, and a hovered Home card sits between
+        // the card and the hover fill.
+        assert_ne!(t.hover, t.row_selected);
+        assert!(t.row_selected.r().abs_diff(t.hover.r()) >= 8, "hover {:?} vs selected {:?}", t.hover, t.row_selected);
+        let hovered = t.home_card_hovered();
+        assert!(t.home_card.r() < hovered.r() && hovered.r() < t.hover.r(), "{hovered:?}");
+        // The four levels still step from darkest to lightest (checked with the light levels too).
+        assert!(Tokens::for_kind(ThemeKind::Pro).card.r() < t.card.r());
+        // Only the default brightness changes: every other theme keeps the chrome colour on its
+        // status bar and rulers, and shows the pasteboard (no cards) on the Home screen.
+        for kind in ThemeKind::ALL.into_iter().filter(|k| *k != ThemeKind::ProMedium) {
+            let o = Tokens::for_kind(kind);
+            assert_eq!((o.status_bar, o.ruler), (o.chrome, o.chrome), "{kind:?}");
+            assert_eq!((o.home_bg, o.home_card, o.home_card_hovered()), (Color32::TRANSPARENT, Color32::TRANSPARENT, o.hover), "{kind:?}");
+        }
+        let pro = Tokens::for_kind(ThemeKind::Pro);
+        assert_eq!((pro.accent, pro.primary_bg), (rgb(0x378ef0), rgb(0x378ef0)), "the darkest level keeps its accent");
+    }
+
+    #[test]
+    fn pasteboard_lines_stay_visible_on_dark_pasteboards() {
+        let (frame, border) = (Color32::from_black_alpha(90), Color32::from_gray(20));
+        let shows = |pasteboard: Color32, line: Color32| contrast(pasteboard.blend(line), pasteboard);
+        for kind in ThemeKind::ALL {
+            let pasteboard = Tokens::for_kind(kind).canvas;
+            for dark in [frame, border] {
+                let line = Tokens::pasteboard_line(pasteboard, dark);
+                assert!(shows(pasteboard, line) >= shows(pasteboard, dark), "{kind:?}: {line:?} on {pasteboard:?}");
+            }
+        }
+        // A black frame or border vanished on the default #282828 pasteboard (about 1.2:1).
+        let default = Tokens::for_kind(ThemeKind::ProMedium).canvas;
+        for dark in [frame, border] {
+            let line = Tokens::pasteboard_line(default, dark);
+            assert!(line != dark && shows(default, line) >= 2.0, "{line:?}: {}", shows(default, line));
+        }
+        // Light and mid-grey pasteboards keep the dark line.
+        for kind in [ThemeKind::ProLight, ThemeKind::ProLightGray, ThemeKind::StudioLight, ThemeKind::Classic, ThemeKind::Adwaita] {
+            let pasteboard = Tokens::for_kind(kind).canvas;
+            assert_eq!(Tokens::pasteboard_line(pasteboard, border), border, "{kind:?}");
+        }
+    }
+
+    #[test]
     fn theme_names_parse() {
         assert_eq!(ThemeKind::from_name("Classic"), Some(ThemeKind::Classic));
         assert_eq!(ThemeKind::from_name("studio (light)"), Some(ThemeKind::StudioLight));
@@ -1208,7 +1395,8 @@ mod tests {
         assert_eq!(ThemeKind::from_name("Solarized Dark"), Some(ThemeKind::SolarizedDark));
         assert_eq!(ThemeKind::from_name("solarized"), Some(ThemeKind::SolarizedDark));
         let m = Tokens::for_kind(ThemeKind::ProMedium);
-        assert!(m.pro && m.dark() && m.kind == ThemeKind::ProMedium && m.card == Color32::from_rgb(83, 83, 83));
+        // Panels are #4d4d4d in the user's reference palette (they were #535353, like the bars).
+        assert!(m.pro && m.dark() && m.kind == ThemeKind::ProMedium && m.card == Color32::from_rgb(77, 77, 77));
         let s = Tokens::for_kind(ThemeKind::SolarizedDark);
         assert!(s.dark() && !s.bevel && s.kind == ThemeKind::SolarizedDark && s.card == Color32::from_rgb(7, 54, 66));
         assert_eq!(ThemeKind::from_name("neon"), None);
@@ -1252,13 +1440,7 @@ mod tests {
 
     /// WCAG 2 contrast ratio, the measure libadwaita's own palette is held to.
     fn contrast(a: Color32, b: Color32) -> f32 {
-        let lin = |v: u8| {
-            let c = f32::from(v) / 255.0;
-            if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
-        };
-        let lum = |c: Color32| 0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b());
-        let (hi, lo) = if lum(a) > lum(b) { (lum(a), lum(b)) } else { (lum(b), lum(a)) };
-        (hi + 0.05) / (lo + 0.05)
+        contrast_ratio(a, b)
     }
 
     #[test]
@@ -1493,7 +1675,11 @@ pub mod live {
                 warning,
                 tab_strip,
                 row_selected,
-                scrim
+                scrim,
+                status_bar,
+                ruler,
+                home_bg,
+                home_card
             );
         }
         unknown
