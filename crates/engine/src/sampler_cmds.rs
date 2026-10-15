@@ -5,7 +5,8 @@
 //! document, are discarded when it closes, and are not saved to `.pcraft` or PSD. Placing, moving
 //! and removing them changes no pixels and adds no History step, so they are not journaled. Each
 //! point reads one composite pixel (no averaging); its values match the Info panel's pointer
-//! readout (RGB 0–255 and the naive device CMYK percentages, without an ICC profile).
+//! readout (RGB 0–255 and CMYK percentages: a CMYK document's own inks, otherwise the naive
+//! device CMYK, without an ICC profile).
 
 use photocraft_doc::Document;
 use serde_json::{Value, json};
@@ -35,11 +36,19 @@ pub fn device_cmyk(r: f32, g: f32, b: f32) -> [i32; 4] {
 }
 
 /// The Info-panel values for a sample point at document pixel `pos`: composite RGB 0–255 and
-/// naive device CMYK percentages. One composite pixel, no averaging.
+/// CMYK percentages (a CMYK document's own inks, else naive device CMYK). One composite pixel,
+/// no averaging.
 pub fn readout(doc: &Document, pos: [f64; 2]) -> ([i32; 3], [i32; 4]) {
-    let rgba = crate::sample_cmds::sample_color(doc, None, pos[0], pos[1], 1, crate::sample_cmds::SampleLayers::All);
+    use crate::sample_cmds::{SampleLayers, sample_color, sample_inks};
+    let rgba = sample_color(doc, None, pos[0], pos[1], 1, SampleLayers::All);
     let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as i32;
-    ([q(rgba[0]), q(rgba[1]), q(rgba[2])], device_cmyk(rgba[0], rgba[1], rgba[2]))
+    let cmyk = sample_inks(doc, None, pos[0], pos[1], 1, SampleLayers::All).map_or_else(|| device_cmyk(rgba[0], rgba[1], rgba[2]), ink_percent);
+    ([q(rgba[0]), q(rgba[1]), q(rgba[2])], cmyk)
+}
+
+/// Inks 0..1 as the Info panel's whole percentages.
+pub fn ink_percent(k: [f32; 4]) -> [i32; 4] {
+    k.map(|v| if v.is_finite() { (v.clamp(0.0, 1.0) * 100.0).round() as i32 } else { 0 })
 }
 
 /// One point as the list command reports it.
@@ -461,6 +470,30 @@ mod tests {
             assert_eq!(rgb.len(), 3);
             assert!(rgb.iter().all(|v| v.as_i64().is_some_and(|n| (0..=255).contains(&n))), "{mode} {depth}: {rgb:?}");
         }
+    }
+
+    /// #1649: in a CMYK document the CMYK readout is the document's own inks, not a naive
+    /// separation of the composite RGB (100% K read back as 75/68/67/90-ish before).
+    #[test]
+    fn cmyk_documents_read_their_own_inks() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8, "mode": "cmyk", "background": "white"})).unwrap();
+        s.edit("paint", |doc, _| {
+            let surf = doc.layers[0].surface_mut().unwrap();
+            let n = surf.format().channels();
+            let mut k = vec![1.0; n];
+            k[..4].copy_from_slice(&[0.0, 0.0, 0.0, 1.0]);
+            surf.fill_rect(Rect::new(0, 0, 4, 8), &k);
+            k[..4].copy_from_slice(&[0.6, 0.7, 0.8, 0.85]);
+            surf.fill_rect(Rect::new(4, 0, 8, 8), &k);
+            Ok(())
+        })
+        .unwrap();
+        let r = s.execute("view.colorSamplers.add", json!({"x": 1, "y": 1})).unwrap();
+        assert_eq!(r["point"]["cmyk"], json!([0, 0, 0, 100]));
+        let r = s.execute("view.colorSamplers.add", json!({"x": 6, "y": 1})).unwrap();
+        assert_eq!(r["point"]["cmyk"], json!([60, 70, 80, 85]));
+        assert_eq!(ink_percent([f32::NAN, 2.0, -1.0, 0.004]), [0, 100, 0, 0]);
     }
 
     /// The mode and depth only affect the composite the readout samples, not the point model.

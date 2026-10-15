@@ -321,9 +321,10 @@ pub fn top(app: &PhotocraftApp) -> Option<u64> {
 /// point (x, y). Off the image or over transparency nothing changes.
 pub fn sample_at(app: &mut PhotocraftApp, x: f64, y: f64) {
     let Some(id) = top(app) else { return };
-    let Some(rgb) = crate::canvas::composite_color(app, x, y) else { return };
+    let Some((rgb, inks)) = crate::canvas::sample_with_inks(app, x, y, "all") else { return };
     if let Some(d) = app.ui.dialog_mut(id) {
-        set_rgb(&mut d.fields, rgb, Keep::Nothing);
+        // A CMYK document's inks stay the colour's CMYK values (#1649), as typed ones do (#4196).
+        set_rgb(&mut d.fields, rgb, inks.map_or(Keep::Nothing, Keep::Cmyk));
     }
 }
 

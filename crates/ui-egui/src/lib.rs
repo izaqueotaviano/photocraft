@@ -494,6 +494,8 @@ pub(crate) type HistJob = (DocId, u64, std::sync::mpsc::Receiver<(DocId, f64, st
 
 /// The Info panel's cached sample: pixel x, y, document revision and Eyedropper Sample Size.
 type InfoSampleKey = (i32, i32, u64, u32);
+/// An Info panel sample: the composite RGBA and, in a CMYK document, its inks.
+type InfoSample = ([f32; 4], Option<[f32; 4]>);
 
 pub struct PhotocraftApp {
     pub session: Session,
@@ -701,8 +703,8 @@ pub struct PhotocraftApp {
     /// Layer hovered on the canvas, highlighted in the Layers panel.
     pub(crate) canvas_hover_layer: Option<photocraft_doc::LayerId>,
     pub(crate) clone_preview: Option<crate::canvas::ClonePreviewCache>,
-    /// Info panel sample cache: ((x, y, revision, Sample Size), composite RGBA).
-    info_sample: Option<(InfoSampleKey, [f32; 4])>,
+    /// Info panel sample cache: ((x, y, revision, Sample Size), (composite RGBA, CMYK inks of a CMYK document)).
+    info_sample: Option<(InfoSampleKey, InfoSample)>,
     /// Guide being dragged (from a ruler or with the Move tool).
     pub(crate) guide_drag: Option<rulers::GuideDrag>,
     /// Move tool marquee selecting layers (`move_box`).

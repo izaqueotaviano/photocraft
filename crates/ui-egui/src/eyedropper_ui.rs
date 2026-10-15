@@ -126,6 +126,59 @@ mod tests {
         assert_eq!(c, [want; 3]);
     }
 
+    /// #1649: in a CMYK document, a colour picked with the Eyedropper (or ⌥-click, or the Color
+    /// Picker's eyedropper) and painted back is the colour picked. It went through RGB without
+    /// its inks: 60/70/80/85 came back as 52/52/55/88 (shadows lighter and greyer), 100% K as a
+    /// rich black.
+    #[test]
+    fn a_cmyk_sample_paints_back_the_same_inks() {
+        let inks = [[0.6, 0.7, 0.8, 0.85], [0.0, 0.0, 0.0, 1.0], [0.1, 0.5, 0.8, 0.2]];
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 30, "height": 10, "mode": "cmyk", "background": "white"})).unwrap();
+        app.session
+            .edit("paint", |doc, _| {
+                let bg = doc.layers[0].surface_mut().unwrap();
+                let mut px = vec![1.0; bg.format().channels()];
+                for (i, k) in inks.iter().enumerate() {
+                    px[..4].copy_from_slice(k);
+                    bg.fill_rect(photocraft_geom::Rect::new(10 * i as i32, 0, 10 * i as i32 + 10, 10), &px);
+                }
+                Ok(())
+            })
+            .unwrap();
+        let read = |app: &PhotocraftApp, layer: usize, x: i32| {
+            let s = app.session.active().unwrap().doc.layers[layer].surface().unwrap().clone();
+            let mut px = vec![0.0; s.format().channels()];
+            s.read_pixel(x, 5, &mut px);
+            [px[0], px[1], px[2], px[3]]
+        };
+        app.run("layer.new.layer", json!({})).unwrap();
+        for (i, _) in inks.iter().enumerate() {
+            let x = 10 * i as i32 + 5;
+            let picked = read(&app, 0, x);
+            for (tool, mods) in [(Tool::Eyedropper, egui::Modifiers::NONE), (Tool::Eyedropper, egui::Modifiers::ALT), (Tool::Brush, egui::Modifiers::ALT)] {
+                app.run("tools.setColors", json!({"foreground": "#00ff00", "background": "#00ff00"})).unwrap();
+                app.ui.tool = tool;
+                click(&mut app, f64::from(x) + 0.5, 5.5, mods);
+                let target = if tool == Tool::Eyedropper && mods.alt { "background" } else { "foreground" };
+                app.run("edit.fill", json!({"contents": target})).unwrap();
+                assert_eq!(read(&app, 1, x), picked, "{tool:?} {mods:?} at {x}");
+                // The fill covers the canvas: take it back so the next pick sees the background.
+                app.run("edit.undo", json!({})).unwrap();
+            }
+            // The Color Picker's eyedropper keeps the inks as the colour's CMYK values.
+            app.run("tools.setColors", json!({"foreground": "#00ff00"})).unwrap();
+            let id = crate::color_picker_ui::open(&mut app, "foreground");
+            crate::color_picker_ui::sample_at(&mut app, f64::from(x) + 0.5, 5.5);
+            let fields = app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields.clone();
+            crate::color_picker_ui::confirm(&mut app, &fields).unwrap();
+            app.ui.dialogs.retain(|d| d.id != id);
+            app.run("edit.fill", json!({"contents": "foreground"})).unwrap();
+            assert_eq!(read(&app, 1, x), picked, "Color Picker at {x}");
+            app.run("edit.undo", json!({})).unwrap();
+        }
+    }
+
     #[test]
     fn the_sample_menu_picks_the_layers() {
         let mut app = app();

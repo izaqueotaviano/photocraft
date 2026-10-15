@@ -1798,18 +1798,20 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         .filter(|(x, y)| *x >= 0 && *y >= 0 && *x < size.width as i32 && *y < size.height as i32);
     // The readout averages the Eyedropper's Sample Size, as in Photoshop (#1649).
     let sample_size = app.ui.tool_options.eyedropper_size;
-    let rgba = pos.and_then(|(x, y)| {
+    let sample = pos.and_then(|(x, y)| {
         if let Some(((cx, cy, cr, cs), v)) = app.info_sample
             && (cx, cy, cr, cs) == (x, y, rev, sample_size)
         {
             return Some(v);
         }
-        let params = json!({"x": f64::from(x) + 0.5, "y": f64::from(y) + 0.5, "size": sample_size});
-        let v: Vec<f32> = serde_json::from_value(app.session.execute("document.sampleColor", params).ok()?).ok()?;
-        let v = [*v.first()?, *v.get(1)?, *v.get(2)?, *v.get(3)?];
-        app.info_sample = Some(((x, y, rev, sample_size), v));
-        Some(v)
+        let params = json!({"x": f64::from(x) + 0.5, "y": f64::from(y) + 0.5, "size": sample_size, "inks": true});
+        let r = app.session.execute("document.sampleColor", params).ok()?;
+        let rgba: [f32; 4] = serde_json::from_value(r.get("rgba")?.clone()).ok()?;
+        let inks: Option<[f32; 4]> = r.get("cmyk").and_then(|k| serde_json::from_value(k.clone()).ok());
+        app.info_sample = Some(((x, y, rev, sample_size), (rgba, inks)));
+        Some((rgba, inks))
     });
+    let rgba = sample.map(|(c, _)| c);
     let mono = theme::mono(11.5);
     let row = |ui: &mut egui::Ui, k: &str, v: String| {
         ui.horizontal(|ui| {
@@ -1823,9 +1825,13 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         row(&mut cols[0], "R:", rgba.map_or_else(dash, |c| q(c[0]).to_string()));
         row(&mut cols[0], "G:", rgba.map_or_else(dash, |c| q(c[1]).to_string()));
         row(&mut cols[0], "B:", rgba.map_or_else(dash, |c| q(c[2]).to_string()));
-        // Naive device CMYK (no ICC profile yet), in percent like Photoshop's readout. The Color
-        // Sampler readout uses the same conversion (`sampler_cmds::device_cmyk`).
-        let cmyk = rgba.map(|c| photocraft_engine::sampler_cmds::device_cmyk(c[0], c[1], c[2]));
+        // In percent like Photoshop's readout: a CMYK document's own inks (#1649), otherwise
+        // naive device CMYK (no ICC profile yet). The Color Sampler readout does the same
+        // (`sampler_cmds::readout`).
+        let cmyk = sample.map(|(c, inks)| match inks {
+            Some(k) => photocraft_engine::sampler_cmds::ink_percent(k),
+            None => photocraft_engine::sampler_cmds::device_cmyk(c[0], c[1], c[2]),
+        });
         for (i, k) in ["C:", "M:", "Y:", "K:"].iter().enumerate() {
             row(&mut cols[1], k, cmyk.map_or_else(dash, |c| format!("{}%", c[i])));
         }

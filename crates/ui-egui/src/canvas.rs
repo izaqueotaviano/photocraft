@@ -4787,9 +4787,16 @@ fn alt_eyedropper(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
 }
 
 fn sample_eyedropper(app: &mut PhotocraftApp, x: f64, y: f64, mods: egui::Modifiers) {
-    if let Some([r, g, b]) = eyedropper_color(app, x, y) {
+    let layers = app.ui.tool_options.eyedropper_sample.clone();
+    if let Some(([r, g, b], inks)) = sample_with_inks(app, x, y, &layers) {
         let key = if mods.alt { "background" } else { "foreground" };
-        let _ = app.run("tools.setColors", json!({ key: [r, g, b, 1.0] }));
+        let mut p = json!({ key: [r, g, b, 1.0] });
+        // A CMYK document's sample keeps its inks, so painting it puts down exactly the picked
+        // colour: the profile's RGB round trip moves dark inks by many levels (#1649).
+        if let Some(k) = inks {
+            p[format!("{key}Cmyk")] = json!(k);
+        }
+        let _ = app.run("tools.setColors", p);
     }
 }
 
@@ -4806,6 +4813,19 @@ fn sample_color(app: &mut PhotocraftApp, x: f64, y: f64, sample_layer: &str) -> 
         [r, g, b, a] if a > 0.0 => Some([r, g, b]),
         _ => None,
     }
+}
+
+/// [`sample_color`] with the CMYK inks under the sample when the document is CMYK (`None` in
+/// other modes), for the samples that become a colour to paint with.
+pub(crate) fn sample_with_inks(app: &mut PhotocraftApp, x: f64, y: f64, sample_layer: &str) -> Option<([f32; 3], Option<[f32; 4]>)> {
+    if !(x.is_finite() && y.is_finite()) {
+        return None;
+    }
+    let size = app.ui.tool_options.eyedropper_size;
+    let v = app.run("document.sampleColor", json!({"x": x, "y": y, "size": size, "sampleLayer": sample_layer, "inks": true})).ok()?;
+    let [r, g, b, a] = serde_json::from_value::<[f32; 4]>(v.get("rgba")?.clone()).ok()?;
+    let inks = v.get("cmyk").and_then(|k| serde_json::from_value::<[f32; 4]>(k.clone()).ok());
+    (a > 0.0).then_some(([r, g, b], inks))
 }
 
 /// What the Eyedropper tool (and a painting tool's ⌥-click) picks at document point (x, y): its

@@ -175,6 +175,43 @@ pub fn sample_color(doc: &Document, active: Option<LayerId>, x: f64, y: f64, siz
     average(&buf.px, averaging_model(doc), doc.depth)
 }
 
+/// The ink values (C, M, Y, K, each 0..1) the Eyedropper picks in a CMYK document, for the same
+/// sample as [`sample_color`]: the composite under the point (or the alpha-weighted mean of the
+/// square around it) worked out in the document's inks, rounded to its depth. `None` for other
+/// colour modes, off the canvas, over transparency, or when `which` has nothing to sample.
+///
+/// The tool colours are RGB, and the document profile's CMYK → RGB → CMYK round trip is not exact
+/// (deep shadows move by many levels, 100% K becomes a rich black), so painting a sampled colour
+/// back without these inks puts a different colour down than the one picked (#1649).
+pub fn sample_inks(doc: &Document, active: Option<LayerId>, x: f64, y: f64, size: u32, which: SampleLayers) -> Option<[f32; 4]> {
+    if doc.mode != ColorMode::Cmyk {
+        return None;
+    }
+    let rect = sample_rect(x, y, size, doc.bounds())?;
+    let src = sampled_document(doc, active, which)?;
+    // Plain Normal layers are composited in their inks (exact); anything else is composited in
+    // RGB and separated through the document's own CMYK profile, as a flatten would do.
+    let fmt = PixelFormat::new(ColorMode::Cmyk, doc.depth, true);
+    let surf = photocraft_compose::composite_to_surface(&src, rect, fmt, None);
+    let mut px = Vec::new();
+    surf.read_region_into(rect, &mut px);
+    let (mut sum, mut alpha) = ([0.0f64; 4], 0.0f64);
+    for p in px.chunks_exact(5) {
+        let a = p.get(4).copied().filter(|a| a.is_finite()).unwrap_or(0.0).clamp(0.0, 1.0);
+        if a <= 0.0 || p.iter().take(4).any(|v| !v.is_finite()) {
+            continue;
+        }
+        for (s, v) in sum.iter_mut().zip(p) {
+            *s += f64::from(*v) * f64::from(a);
+        }
+        alpha += f64::from(a);
+    }
+    if alpha <= 0.0 {
+        return None;
+    }
+    Some(sum.map(|s| quantize(((s / alpha) as f32).clamp(0.0, 1.0), doc.depth)))
+}
+
 /// The colour model the averages are taken in: the document's, except CMYK. CMYK documents are
 /// composited in RGB (see `photocraft_compose`), and the profile's RGB → CMYK → RGB round trip
 /// is not exact (deep shadows move by several levels), so averaging in CMYK would make a 3×3
@@ -219,21 +256,36 @@ fn coord(cmd: &str, p: &Value, key: &str) -> Result<f64> {
     p.get(key).and_then(Value::as_f64).filter(|v| v.is_finite()).ok_or_else(|| bad(cmd, format!("`{key}` must be a finite number (document pixels)")))
 }
 
+/// The `inks` param: also report the CMYK inks of the sample.
+fn inks_param(cmd: &str, p: &Value) -> Result<bool> {
+    match p.get("inks") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(b)) => Ok(*b),
+        Some(v) => Err(bad(cmd, format!("`inks` = {v} must be true or false"))),
+    }
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![CommandSpec {
         id: "document.sampleColor",
         label: "Sample Color",
         menu: &[],
         shortcut: None,
-        params: r##"{"x":f64,"y":f64,"size":"point"|1|3|5|11|31|51|101=1,"sampleLayer":"current"|"currentAndBelow"|"all"|"allNoAdjustments"|"currentAndBelowNoAdjustments"="all"} → [r,g,b,a] (the Eyedropper's Sample Size and Sample: the composite pixel, or the average of the size×size square centred on it, clipped to the canvas; transparent off the canvas)"##,
+        params: r##"{"x":f64,"y":f64,"size":"point"|1|3|5|11|31|51|101=1,"sampleLayer":"current"|"currentAndBelow"|"all"|"allNoAdjustments"|"currentAndBelowNoAdjustments"="all","inks":bool=false} → [r,g,b,a] (the Eyedropper's Sample Size and Sample: the composite pixel, or the average of the size×size square centred on it, clipped to the canvas; transparent off the canvas). With inks: {"rgba":[r,g,b,a],"cmyk":[c,m,y,k] 0..1|null}: a CMYK document's inks under the sample (null in other modes or over transparency); pass them to tools.setColors as foregroundCmyk/backgroundCmyk so painting the sample puts down exactly the picked colour"##,
         enabled: |s| s.active().map(|_| ()).ok_or_else(|| "no document open".into()),
         run: |s: &mut Session, p: &Value| {
             const CMD: &str = "document.sampleColor";
             let (x, y) = (coord(CMD, p, "x")?, coord(CMD, p, "y")?);
             let size = size_param(CMD, p)?;
             let which = layers_param(CMD, p)?;
+            let inks = inks_param(CMD, p)?;
             let d = s.active().ok_or(EngineError::NoDocument)?;
-            Ok(json!(sample_color(&d.doc, d.active_layer, x, y, size, which)))
+            let rgba = sample_color(&d.doc, d.active_layer, x, y, size, which);
+            if !inks {
+                return Ok(json!(rgba));
+            }
+            let cmyk = sample_inks(&d.doc, d.active_layer, x, y, size, which);
+            Ok(json!({"rgba": rgba, "cmyk": cmyk}))
         },
         journal: false,
     }]
@@ -430,6 +482,113 @@ mod tests {
         l.opacity = 0.5;
         l.blend = photocraft_color::BlendMode::Multiply;
         assert!(close8(s(&d, Some(red), SampleLayers::Current), cur));
+    }
+
+    /// A 6×6 CMYK document of `depth` whose left half is `left` and right half `right` (inks).
+    fn cmyk_doc(depth: SampleType, left: [f32; 4], right: [f32; 4]) -> Document {
+        let mut d = Document::new("cmyk", Size::new(6, 6), ColorMode::Cmyk, depth);
+        let mut bg = Layer::raster("Background", d.pixel_format());
+        let s = bg.surface_mut().unwrap();
+        let n = s.format().channels();
+        for (rect, k) in [(Rect::new(0, 0, 3, 6), left), (Rect::new(3, 0, 6, 6), right)] {
+            let mut px = vec![1.0; n];
+            px[..4].copy_from_slice(&k);
+            s.fill_rect(rect, &px);
+        }
+        d.layers.push(bg);
+        d
+    }
+
+    /// #1649: the Eyedropper reads a CMYK document's inks exactly (point and averaged), so a
+    /// sampled colour can be painted back unchanged.
+    #[test]
+    fn sample_inks_are_the_documents_own_inks() {
+        let (dark, k100) = ([0.6, 0.7, 0.8, 0.85], [0.0, 0.0, 0.0, 1.0]);
+        for depth in [SampleType::U8, SampleType::U16] {
+            let d = cmyk_doc(depth, dark, k100);
+            let q = |k: [f32; 4]| k.map(|v| quantize(v, depth));
+            let all = SampleLayers::All;
+            assert_eq!(sample_inks(&d, None, 1.5, 1.5, 1, all), Some(q(dark)), "{depth:?}");
+            assert_eq!(sample_inks(&d, None, 4.5, 4.5, 1, all), Some(k100), "{depth:?}");
+            // A uniform 3×3 averages to its own inks; across the edge, to the mean.
+            assert_eq!(sample_inks(&d, None, 4.5, 2.5, 3, all), Some(k100), "{depth:?}");
+            let mixed = sample_inks(&d, None, 3.5, 2.5, 3, all).unwrap();
+            let want = q([0.2, 0.7 / 3.0, 0.8 / 3.0, 0.85 / 3.0 + 2.0 / 3.0]);
+            assert!(close(mixed, want, 1.5 / 255.0), "{depth:?}: {mixed:?} vs {want:?}");
+            // Off the canvas: nothing.
+            assert_eq!(sample_inks(&d, None, -1.0, 1.0, 1, all), None);
+        }
+        // Not a CMYK document: no inks.
+        let rgb = block(ColorMode::Rgb, SampleType::U8);
+        assert_eq!(sample_inks(&rgb, None, 1.5, 1.5, 1, SampleLayers::All), None);
+        // Over transparency (Current Layer = an empty layer): nothing.
+        let mut d = cmyk_doc(SampleType::U8, dark, k100);
+        let empty = Layer::raster("empty", d.pixel_format());
+        let id = empty.id;
+        d.layers.push(empty);
+        assert_eq!(sample_inks(&d, Some(id), 1.5, 1.5, 1, SampleLayers::Current), None);
+        // A layer the ink compositor can't take (Multiply) is separated from the RGB composite,
+        // through the document's profile: still inks, and dark ones.
+        let mut top = Layer::raster("top", d.pixel_format());
+        let n = top.surface().unwrap().format().channels();
+        let mut px = vec![1.0; n];
+        px[..4].copy_from_slice(&[0.0, 0.5, 0.0, 0.0]);
+        top.surface_mut().unwrap().fill_rect(Rect::new(0, 0, 6, 6), &px);
+        top.blend = photocraft_color::BlendMode::Multiply;
+        d.layers.push(top);
+        let k = sample_inks(&d, None, 4.5, 4.5, 1, SampleLayers::All).unwrap();
+        assert!(k[3] > 0.5, "{k:?}");
+    }
+
+    /// #1649: sample → foreground (with the sampled inks) → fill puts down exactly the sampled
+    /// inks in a CMYK document; without the inks, the RGB round trip lightened dark ink by
+    /// several percent and turned 100% K into a rich black.
+    #[test]
+    fn a_sampled_cmyk_colour_fills_with_the_same_inks() {
+        for (depth, inks) in [(8, [0.6, 0.7, 0.8, 0.85]), (8, [0.1, 0.5, 0.8, 0.2]), (16, [0.0, 0.0, 0.0, 1.0])] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 4, "height": 4, "mode": "cmyk", "depth": depth, "background": "white"})).unwrap();
+            s.edit("paint", |doc, _| {
+                let surf = doc.layers[0].surface_mut().unwrap();
+                let mut px = vec![1.0; surf.format().channels()];
+                px[..4].copy_from_slice(&inks);
+                surf.fill_rect(Rect::new(0, 0, 4, 4), &px);
+                Ok(())
+            })
+            .unwrap();
+            let read = |s: &Session, i: usize| {
+                let surf = s.active().unwrap().doc.layers[i].surface().unwrap().clone();
+                let mut px = vec![0.0; surf.format().channels()];
+                surf.read_pixel(1, 1, &mut px);
+                [px[0], px[1], px[2], px[3]]
+            };
+            let picked = read(&s, 0);
+            let r = s.execute("document.sampleColor", json!({"x": 1.5, "y": 1.5, "inks": true})).unwrap();
+            assert_eq!(serde_json::from_value::<[f32; 4]>(r["cmyk"].clone()).unwrap(), picked, "{depth} {inks:?}");
+            let rgba: [f32; 4] = serde_json::from_value(r["rgba"].clone()).unwrap();
+            s.execute("tools.setColors", json!({"foreground": rgba, "foregroundCmyk": r["cmyk"]})).unwrap();
+            s.execute("layer.new.layer", json!({})).unwrap();
+            s.execute("edit.fill", json!({"contents": "foreground"})).unwrap();
+            assert_eq!(read(&s, 1), picked, "{depth} {inks:?}");
+            let again: [f32; 4] = serde_json::from_value(s.execute("document.sampleColor", json!({"x": 1.5, "y": 1.5})).unwrap()).unwrap();
+            assert!(close(again, rgba, 1e-6), "{depth} {inks:?}: {again:?} vs {rgba:?}");
+        }
+    }
+
+    #[test]
+    fn the_command_reports_inks_on_request() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8, "background": "white"})).unwrap();
+        let r = s.execute("document.sampleColor", json!({"x": 4, "y": 4, "inks": true})).unwrap();
+        assert_eq!(r, json!({"rgba": [1.0, 1.0, 1.0, 1.0], "cmyk": null}));
+        s.execute("file.new", json!({"width": 8, "height": 8, "mode": "cmyk", "background": "white"})).unwrap();
+        let r = s.execute("document.sampleColor", json!({"x": 4, "y": 4, "inks": true})).unwrap();
+        assert_eq!(r["cmyk"], json!([0.0, 0.0, 0.0, 0.0]));
+        let r = s.execute("document.sampleColor", json!({"x": -4, "y": 4, "inks": true})).unwrap();
+        assert_eq!(r, json!({"rgba": [0.0, 0.0, 0.0, 0.0], "cmyk": null}));
+        for bad in [json!({"x": 1, "y": 1, "inks": "yes"}), json!({"x": 1, "y": 1, "inks": 1})] {
+            assert!(matches!(s.execute("document.sampleColor", bad.clone()), Err(EngineError::BadParams { .. })), "{bad}");
+        }
     }
 
     #[test]
